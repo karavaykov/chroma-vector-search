@@ -1,0 +1,79 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  
+  // Default agent
+  "default_agent": "smith",
+  
+  // Custom tools for Chroma integration
+  "custom_tools": {
+    "chroma_semantic_search": {
+      "description": "Search codebase using semantic similarity via Chroma server",
+      "command": ["python", "chroma_client.py", "--search", "{query}", "--results", "{n_results}", "--port", "8765"],
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Natural language query about code"
+        },
+        "n_results": {
+          "type": "integer",
+          "description": "Number of results to return",
+          "default": 5
+        }
+      }
+    },
+    "chroma_index_codebase": {
+      "description": "Index the codebase for vector search",
+      "command": ["python", "chroma_client.py", "--index", "--port", "8765"],
+      "parameters": {}
+    },
+    "chroma_get_stats": {
+      "description": "Get statistics about the indexed codebase",
+      "command": ["python", "chroma_client.py", "--stats", "--port", "8765"],
+      "parameters": {}
+    }
+  },
+  
+  // Tools permissions
+  "tools": {
+    "chroma_semantic_search": true,
+    "chroma_index_codebase": true,
+    "chroma_get_stats": true
+  },
+  
+  // Agent configurations
+  "agent": {
+    "scout": {
+      "description": "Research agent with semantic search capabilities",
+      "tools": {
+        "chroma_semantic_search": true,
+        "chroma_get_stats": true,
+        "websearch": true,
+        "webfetch": true,
+        "grep": true,
+        "glob": true,
+        "read": true
+      }
+    },
+    "smith": {
+      "description": "Executor agent with code pattern search",
+      "tools": {
+        "chroma_semantic_search": true,
+        "chroma_index_codebase": true
+      }
+    },
+    "architect": {
+      "description": "Planner agent with architecture understanding",
+      "tools": {
+        "chroma_semantic_search": true,
+        "chroma_get_stats": true
+      }
+    }
+  },
+  
+  // Instructions for agents
+  "instructions": {
+    "scout": "Use chroma_semantic_search for semantic code search. Combine with traditional grep/glob for comprehensive research.",
+    "smith": "Before implementing, use chroma_semantic_search to find similar patterns. Re-index with chroma_index_codebase after major changes.",
+    "architect": "Use chroma_semantic_search to understand existing architecture patterns when planning new features."
+  }
+}

@@ -1,0 +1,114 @@
+name: Test Chroma Vector Search
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black flake8 mypy
+    
+    - name: Check code formatting with black
+      run: |
+        black --check .
+    
+    - name: Lint with flake8
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Type check with mypy
+      run: |
+        mypy --ignore-missing-imports .
+    
+    - name: Test with pytest
+      run: |
+        pytest --cov=. --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.9"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Test server startup
+      run: |
+        # Test server can start
+        timeout 10 python chroma_simple_server.py --server --port 8765 &
+        SERVER_PID=$!
+        sleep 2
+        
+        # Test client can connect
+        python chroma_client.py --ping --port 8765 || echo "Server not responding"
+        
+        # Cleanup
+        kill $SERVER_PID 2>/dev/null || true
+    
+    - name: Test indexing
+      run: |
+        # Create test directory structure
+        mkdir -p test_project/src
+        echo "public class Test { }" > test_project/src/Test.java
+        echo "def test(): pass" > test_project/src/test.py
+        
+        # Test indexing
+        python chroma_simple_server.py --index --project-root test_project
+    
+    - name: Cleanup
+      run: |
+        rm -rf test_project .chroma_db
+
+  release-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, integration-test]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check version consistency
+      run: |
+        # Check setup.py has version
+        grep -q "version=" setup.py || exit 1
+        
+        # Check CHANGELOG has latest version
+        grep -q "^## \[[0-9]" CHANGELOG.md || exit 1
+        
+        echo "Release checks passed"

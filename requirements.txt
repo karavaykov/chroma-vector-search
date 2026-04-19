@@ -1,0 +1,21 @@
+# Chroma Vector Search for OpenCode
+# Python 3.9+ compatible dependencies
+
+# Core dependencies
+chromadb>=0.5.0
+sentence-transformers>=2.2.2
+
+# Runtime dependencies
+numpy>=1.24.0
+pandas>=2.0.0
+tqdm>=4.65.0
+python-dotenv>=1.0.0
+
+# Development dependencies (optional)
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Note: MCP library requires Python 3.10+
+# This project uses custom TCP protocol for Python 3.9 compatibility
