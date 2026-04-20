@@ -1,0 +1,157 @@
+# Alert rules for Chroma Vector Search
+
+groups:
+  - name: chroma_alerts
+    interval: 30s
+    rules:
+      # Service availability alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: '{{ $labels.job }}'
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 1 minute."
+
+      # High error rate alerts
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.job }}"
+          description: "Error rate is above 5% for service {{ $labels.job }}"
+
+      # High latency alerts
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency on {{ $labels.job }}"
+          description: "95th percentile latency is above 2 seconds for service {{ $labels.job }}"
+
+      # Memory usage alerts
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.container }}"
+          description: "Memory usage is above 80% for container {{ $labels.container }}"
+
+      # CPU usage alerts
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.container }}"
+          description: "CPU usage is above 80% for container {{ $labels.container }}"
+
+      # Disk space alerts
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space is below 20% on {{ $labels.instance }}"
+
+      # Redis memory alerts
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage is above 80%"
+
+      # PostgreSQL connection alerts
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_database_numbackends > 50
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL high connections"
+          description: "PostgreSQL has more than 50 active connections"
+
+      # Indexing queue alerts
+      - alert: IndexingQueueBacklog
+        expr: chroma_indexing_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Indexing queue backlog"
+          description: "Indexing queue has more than 1000 pending jobs"
+
+      # Search latency alerts
+      - alert: SearchHighLatency
+        expr: histogram_quantile(0.95, rate(chroma_search_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Search high latency"
+          description: "95th percentile search latency is above 5 seconds"
+
+      # Cache hit rate alerts
+      - alert: LowCacheHitRate
+        expr: rate(chroma_cache_hits_total[5m]) / (rate(chroma_cache_hits_total[5m]) + rate(chroma_cache_misses_total[5m])) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is below 50%"
+
+      # Rate limiting alerts
+      - alert: HighRateLimitHits
+        expr: rate(chroma_rate_limit_hits_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate limit hits"
+          description: "More than 10 rate limit hits per minute"
+
+  - name: chroma_business_metrics
+    interval: 60s
+    rules:
+      # Business metrics alerts
+      - alert: LowSearchVolume
+        expr: rate(chroma_search_requests_total[1h]) < 1
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Low search volume"
+          description: "Search volume is less than 1 request per hour"
+
+      - alert: HighIndexingFailureRate
+        expr: rate(chroma_indexing_failures_total[1h]) / rate(chroma_indexing_requests_total[1h]) > 0.1
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High indexing failure rate"
+          description: "Indexing failure rate is above 10%"
+
+      - alert: CollectionGrowthAlert
+        expr: deriv(chroma_collection_document_count[1h]) > 1000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rapid collection growth"
+          description: "Collection is growing at more than 1000 documents per hour"
