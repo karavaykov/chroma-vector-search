@@ -44,6 +44,7 @@ opencode
 - **Multi-language Support**: Java, Python, JavaScript, TypeScript, and more
 - **Enterprise 1C/BSL Support**: Specialized parser with metadata extraction
 - **Simple TCP Protocol**: Works with Python 3.9+
+- **WebSocket API**: Real-time updates and bidirectional communication
 - **OpenCode Integration**: Custom tools for all agents
 - **Persistent Storage**: Index survives server restarts
 - **Fast Queries**: ~1 second response time
@@ -58,7 +59,8 @@ opencode
 │   OpenCode  │ ◄──────────────► │   Chroma    │ ◄────────────────► │   ChromaDB  │
 │   Agent     │   JSON over TCP  │   Server    │   Embeddings       │   Storage   │
 └─────────────┘                  └─────────────┘                    └─────────────┘
-       │                               │                                    │
+       │        WebSocket (8766)        │                                    │
+       │ ◄───────────────────────────── │                                    │
        │ Custom Tools                  │ Sentence Transformers             │ .chroma_db/
        ▼                               ▼                                    ▼
 ┌─────────────┐              ┌──────────────────┐                 ┌──────────────────┐
@@ -72,6 +74,7 @@ opencode
 
 ### 1. **Chroma Simple Server** (`chroma_simple_server.py`)
 - TCP server on port 8765
+- WebSocket server on port 8766 (real-time updates)
 - Handles indexing and search requests
 - Python 3.9+ compatible
 
@@ -220,6 +223,74 @@ python chroma_client.py --stats
 # Re-index codebase
 python chroma_client.py --index --patterns "**/*.java,**/*.py"
 ```
+
+## 🌐 WebSocket API (New in v1.1.0)
+
+Real-time bidirectional communication with WebSocket support:
+
+### WebSocket Features
+- **Real-time search results**: Immediate response streaming
+- **Progress updates**: Live indexing progress
+- **Event subscriptions**: Subscribe to server events
+- **Bidirectional communication**: Server can push updates
+- **Lower latency**: Compared to HTTP/TCP requests
+
+### Quick Start with WebSocket
+```bash
+# Start server with WebSocket (default port 8766)
+python chroma_simple_server.py --server --websocket-port 8766
+
+# Test WebSocket connection
+python test_websocket.py
+
+# Start without WebSocket
+python chroma_simple_server.py --server --no-websocket
+```
+
+### WebSocket Client Example
+```python
+import asyncio
+import websockets
+import json
+
+async def search_code():
+    async with websockets.connect('ws://localhost:8766') as ws:
+        # Send search request
+        await ws.send(json.dumps({
+            "type": "search",
+            "id": "req_001",
+            "data": {"query": "database", "n_results": 5}
+        }))
+        
+        # Receive results
+        response = await ws.recv()
+        results = json.loads(response)
+        print(f"Found {len(results['data']['results'])} results")
+```
+
+### Event Subscription
+```javascript
+// JavaScript WebSocket client
+const ws = new WebSocket('ws://localhost:8766');
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    
+    if (data.type === 'search_results') {
+        console.log('Search results:', data.data.results);
+    } else if (data.type === 'server_stats') {
+        console.log('Server update:', data.data);
+    }
+};
+
+// Subscribe to server stats
+ws.send(JSON.stringify({
+    type: 'subscribe',
+    data: {event_types: ['server_stats']}
+}));
+```
+
+For complete API documentation, see [docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md).
 
 ## 🚀 GPU Acceleration (New in v1.1.0)
 

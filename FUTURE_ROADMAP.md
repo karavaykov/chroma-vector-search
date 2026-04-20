@@ -13,12 +13,7 @@
 
 ### 🎯 Основные цели:
 - Улучшение производительности на 30% (✅ достигнуто: до 14.7x ускорение)
-- Добавление WebSocket API для real-time обновлений
-- Создание базового веб-интерфейса
-
-### 🎯 Основные цели:
-- Улучшение производительности на 30%
-- Добавление WebSocket API для real-time обновлений
+- Добавление WebSocket API для real-time обновлений (✅ реализовано)
 - Создание базового веб-интерфейса
 
 ### 🚀 Основные функции:
@@ -36,7 +31,7 @@
 - **Streaming результаты** - постепенная отдача результатов
 
 #### 3. API улучшения
-- **WebSocket API** - real-time статус индексации
+- ✅ **WebSocket API** - real-time статус индексации (реализовано)
 - **Расширенная аутентификация** - JWT, API keys
 - **Пакетные операции** - массовые обновления/удаления
 - **Улучшенная обработка ошибок** - retry logic, circuit breakers
@@ -200,8 +195,8 @@
 ## 🚀 План реализации
 
 ### Квартал 1 (v1.1.0):
-- WebSocket API
-- GPU ускорение
+- ✅ WebSocket API (реализовано)
+- ✅ GPU ускорение (реализовано)
 - Базовый веб-интерфейс
 - Гибридный поиск
 
@@ -287,26 +282,65 @@
 
 *Эта дорожная карта будет регулярно обновляться на основе feedback от сообщества и изменений в технологическом ландшафте.*
 
-## 🎯 Реализованные функции (GPU ускорение)
+## 🎯 Реализованные функции
 
-### Коммиты реализации:
+### GPU ускорение
+
+#### Коммиты реализации:
 - **GPU Acceleration Implementation:** https://github.com/karavaykov/chroma-vector-search/commit/196e09a
 - **Performance Tests:** https://github.com/karavaykov/chroma-vector-search/commit/1f41da8
 - **Repository Cleanup:** https://github.com/karavaykov/chroma-vector-search/commit/3cb1ffe
 
-### Документация:
+#### Документация:
 - [GPU Acceleration Guide](docs/GPU_ACCELERATION.md)
 - [GPU Acceleration Plan](GPU_ACCELERATION_PLAN.md)
 - [Performance Tests with GPU](ENTERPRISE_PERFORMANCE_TEST_WITH_GPU.md)
 - [Cleanup Summary](CLEANUP_SUMMARY.md)
 
-### Ключевые возможности:
+#### Ключевые возможности:
 - ✅ Автоматическое определение устройств (CUDA, MPS, CPU)
 - ✅ Batch processing с оптимизацией для GPU
 - ✅ Mixed precision (float16) поддержка
 - ✅ Гибкая конфигурация через командную строку
 - ✅ Кэширование эмбеддингов
 - ✅ Model warm-up при инициализации
+
+### WebSocket API
+
+#### Реализация:
+- **WebSocket Server Integration:** Добавлен в `chroma_simple_server.py`
+- **Отдельный WebSocket сервер:** `websocket_server.py`
+- **Тесты и документация:** `test_websocket.py`, `docs/WEBSOCKET_API.md`
+
+#### Ключевые возможности:
+- ✅ Real-time bidirectional communication
+- ✅ Поддержка событий (subscribe/unsubscribe)
+- ✅ Progress updates для индексации
+- ✅ Периодические обновления статистики
+- ✅ Совместимость с существующим TCP протоколом
+- ✅ Автоматическое определение клиентов
+- ✅ Обработка ошибок и переподключение
+
+#### Документация:
+- [WebSocket API Documentation](docs/WEBSOCKET_API.md)
+- [WebSocket Implementation Plan](WEBSOCKET_IMPLEMENTATION_PLAN.md)
+- [Test Scripts](test_websocket.py)
+
+#### Примеры использования:
+```bash
+# Запуск сервера с WebSocket
+python chroma_simple_server.py --server --websocket-port 8766
+
+# Тестирование WebSocket соединения
+python test_websocket.py
+
+# JavaScript клиент
+const ws = new WebSocket('ws://localhost:8766');
+ws.send(JSON.stringify({
+    type: 'search',
+    data: {query: 'database', n_results: 5}
+}));
+```
 
 **Последнее обновление:** 21 апреля 2026  
 **Следующее обновление:** 20 июля 2026

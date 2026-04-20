@@ -24,6 +24,15 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
+# WebSocket support
+try:
+    from websocket_server import WebSocketServer
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("WebSocket support not available. Install with: pip install websockets")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -97,12 +106,14 @@ class GPUConfig:
 class ChromaSimpleServer:
     """Simple server for Chroma vector search without MCP"""
     
-    def __init__(self, project_root: str = ".", port: int = 8765, gpu_config: GPUConfig = None):
+    def __init__(self, project_root: str = ".", port: int = 8765, gpu_config: GPUConfig = None, websocket_port: int = 8766):
         self.project_root = Path(project_root).resolve()
         self.port = port
+        self.websocket_port = websocket_port
         self.chroma_client = None
         self.collection = None
         self.embedding_model = None
+        self.websocket_server = None
         self.collection_name = "codebase_vectors"
         self.server_socket = None
         self.running = False
@@ -946,7 +957,7 @@ class ChromaSimpleServer:
             })
     
     def start_server(self):
-        """Start the TCP server"""
+        """Start the TCP server and WebSocket server"""
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -956,6 +967,15 @@ class ChromaSimpleServer:
             
             self.running = True
             logger.info(f"Chroma server started on port {self.port}")
+            
+            # Start WebSocket server if available
+            if WEBSOCKET_AVAILABLE and self.websocket_port:
+                try:
+                    self.websocket_server = WebSocketServer(self, self.websocket_port)
+                    self.websocket_server.start_in_thread()
+                    logger.info(f"WebSocket server started on port {self.websocket_port}")
+                except Exception as e:
+                    logger.error(f"Failed to start WebSocket server: {e}")
             
             def client_handler(client_socket):
                 """Handle a client connection"""
@@ -998,9 +1018,17 @@ class ChromaSimpleServer:
     def stop_server(self):
         """Stop the server"""
         self.running = False
+        
+        # Stop WebSocket server
+        if self.websocket_server:
+            self.websocket_server.stop()
+            self.websocket_server = None
+        
+        # Stop TCP server
         if self.server_socket:
             self.server_socket.close()
             self.server_socket = None
+        
         logger.info("Chroma server stopped")
 
 def run_standalone(args):
@@ -1017,7 +1045,16 @@ def run_standalone(args):
         )
         print(f"GPU acceleration enabled (device: {args.gpu_device})")
     
-    server = ChromaSimpleServer(args.project_root, gpu_config=gpu_config)
+    # Determine WebSocket port
+    websocket_port = None
+    if hasattr(args, 'websocket_port') and args.websocket_port and not getattr(args, 'no_websocket', False):
+        websocket_port = args.websocket_port
+    
+    server = ChromaSimpleServer(
+        args.project_root, 
+        gpu_config=gpu_config,
+        websocket_port=websocket_port
+    )
     
     if args.index:
         print("Indexing codebase...")
@@ -1070,6 +1107,17 @@ def run_standalone(args):
         print(f"  echo 'SEARCH|database connection|5' | nc localhost {args.port}")
         print("")
         
+        # Show WebSocket info if available
+        if WEBSOCKET_AVAILABLE:
+            websocket_port = args.websocket_port if hasattr(args, 'websocket_port') else 8766
+            print(f"WebSocket server: ENABLED on port {websocket_port}")
+            print("WebSocket API supports real-time updates and bidirectional communication")
+            print("Connect with: ws://localhost:{websocket_port}")
+            print("")
+        else:
+            print("WebSocket server: DISABLED (install: pip install websockets)")
+            print("")
+        
         server.start_server()
     
     else:
@@ -1110,7 +1158,18 @@ def main():
     parser.add_argument("--gpu-cache-size", type=int, default=1000,
                        help="Cache size for embeddings")
     
+    # WebSocket arguments
+    parser.add_argument("--websocket-port", type=int, default=8766,
+                       help="WebSocket server port (default: 8766)")
+    parser.add_argument("--no-websocket", action="store_true",
+                       help="Disable WebSocket server")
+    
     args = parser.parse_args()
+    
+    # Disable WebSocket if requested
+    if args.no_websocket:
+        args.websocket_port = None
+    
     run_standalone(args)
 
 if __name__ == "__main__":

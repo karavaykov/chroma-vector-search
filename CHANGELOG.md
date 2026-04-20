@@ -5,6 +5,35 @@ All notable changes to Chroma Vector Search will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-04-21
+
+### Added
+- **GPU Acceleration** - Support for CUDA (NVIDIA) and MPS (Apple Silicon) for faster embeddings
+- **Performance Optimization** - Batch processing with configurable batch sizes
+- **Mixed Precision** - Float16 support for compatible GPUs
+- **Automatic Device Detection** - Auto-detection of CUDA, MPS, or CPU
+- **GPU Configuration** - Command-line options for GPU control (`--gpu`, `--gpu-device`, etc.)
+- **Caching Optimization** - Improved embedding caching with LRU cache
+- **Model Warm-up** - Pre-warming models on GPU for faster first inference
+
+### Performance Improvements
+- **Search Queries**: 2.6x-14.7x faster with GPU acceleration
+- **Batch Encoding**: Up to 12.6x faster (64 texts batch)
+- **Memory Optimization**: Reduced memory usage with streaming processing
+- **Enterprise 1C/BSL Support**: Enhanced parser with metadata extraction
+
+### Documentation
+- **GPU Acceleration Guide** - Complete documentation for GPU usage
+- **Performance Tests** - Comprehensive GPU vs CPU performance comparison
+- **Multi-language README** - Updated documentation in English, Russian, and Chinese
+- **Roadmap Updates** - Marked first roadmap item as completed
+
+### Technical Details
+- **PyTorch Integration**: Seamless integration with PyTorch for GPU operations
+- **Batch Processing**: Optimized batch sizes for different GPU memory capacities
+- **Device Fallback**: Automatic fallback to CPU if GPU is unavailable
+- **Configuration Flexibility**: Programmatic and command-line configuration options
+
 ## [1.0.0] - 2026-04-20
 
 ### Added

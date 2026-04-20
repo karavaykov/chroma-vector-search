@@ -6,7 +6,7 @@
 
 ## 📊 Key Metrics
 
-- **Version**: 0.1.0
+- **Version**: 1.1.0
 - **Python**: 3.9+ compatible
 - **Dependencies**: 6 core packages
 - **File Size**: ~50 KB source code
