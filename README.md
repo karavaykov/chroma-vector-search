@@ -83,6 +83,20 @@ opencode
 - `start_chroma_mcp.sh` - Launch script
 - `install_chroma.sh` - Dependency installer
 
+## 🗺️ Development Roadmap
+
+Based on enterprise testing results, we have developed a 6-week roadmap for enterprise optimization:
+
+**Key Goals:**
+1. Memory optimization for >50k files
+2. Enhanced 1C/BSL support for enterprise projects  
+3. Microservices architecture with REST API
+4. Docker containerization and monitoring
+
+**Timeline:** 6 weeks | **Expected:** 5-10x performance improvement
+
+[View Full Roadmap](DEVELOPMENT_ROADMAP.md) | [Enterprise Test Results](ENTERPRISE_PERFORMANCE_TEST.md)
+
 ## 📊 Supported Languages
 
 | Language | Extensions | Notes |
