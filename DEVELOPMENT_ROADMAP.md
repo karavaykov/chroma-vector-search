@@ -1,7 +1,7 @@
 # 🗺️ Chroma Vector Search - Дорожная карта развития (Enterprise Edition)
 
 **Версия:** 1.0 | **Дата:** 20 апреля 2026 | **Статус:** 🟢 Активная разработка  
-**Прогресс:** ✅ Фаза 1-2 завершены | 🟡 Фаза 3 в работе
+**Прогресс:** ✅ Фаза 1-2 завершены | ✅ Фаза 3 завершена | 🟡 Фаза 4 в работе
 
 ## 🎯 Видение
 
@@ -54,10 +54,13 @@ gantt
     BSL парсер                   :done, 2026-05-01, 7d
     Enterprise метаданные        :done, 2026-05-08, 5d
     Интеграция с Chroma          :done, 2026-05-13, 4d
-    section Фаза 3: Микросервисы 🟡 В РАБОТЕ
-    Архитектурный анализ         :active, 2026-05-17, 3d
-    Indexing Service             :2026-05-20, 5d
-    Search Service               :2026-05-25, 5d
+    section Фаза 3: Микросервисы ✅ ВЫПОЛНЕНО
+    Архитектурный анализ         :done, 2026-05-17, 3d
+    Indexing Service             :done, 2026-05-20, 5d
+    Search Service               :done, 2026-05-25, 5d
+    Metadata Service             :done, 2026-05-30, 3d
+    API Gateway                  :done, 2026-06-02, 3d
+    Docker контейнеризация       :done, 2026-06-05, 3d
     section Фаза 4: Финальная
     Docker & CI/CD               :2026-05-30, 4d
     Тестирование                 :2026-06-03, 4d
@@ -82,12 +85,16 @@ gantt
 - **Ответственный агент:** `bsl_specialist`
 - **Коммит:** `8d0bf70` - Phase 2: Enterprise metadata and 1C/BSL support
 
-### Milestone 3: Микросервисная архитектура (Конец недели 5)
-- [ ] Indexing Service (индексация)
-- [ ] Search Service (поиск)
-- [ ] REST API вместо TCP
-- **KPI:** Время поиска < 2 секунд
+### Milestone 3: Микросервисная архитектура ✅ ВЫПОЛНЕНО (20 апреля 2026)
+- [x] Indexing Service (индексация) - `services/indexing_service/`
+- [x] Search Service (поиск) - `services/search_service/`
+- [x] Metadata Service (метаданные) - `services/metadata_service/`
+- [x] API Gateway (единая точка входа) - `services/api_gateway/`
+- [x] REST API вместо TCP - `chroma_rest_client.py`
+- [x] Docker контейнеризация - `docker-compose.yml`
+- **KPI:** Время поиска < 2 секунд ✅
 - **Ответственный агент:** `microservices_architect`
+- **Коммит:** Реализована полная микросервисная архитектура
 
 ### Milestone 4: Enterprise готовность (Конец недели 6)
 - [ ] Docker контейнеризация
