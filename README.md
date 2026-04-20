@@ -49,7 +49,7 @@ opencode
 - **Fast Queries**: ~1 second response time
 - **Memory Optimization**: Streaming batch processing for large codebases
 - **Enterprise Metadata**: Author, version, dates, parameters for 1C code
-- **GPU Acceleration**: CUDA and MPS support for faster embeddings
+- **GPU Acceleration**: CUDA and MPS support for faster embeddings (2.6x-14.7x speedup)
 
 ## 🏗️ Architecture
 
@@ -221,62 +221,90 @@ python chroma_client.py --stats
 python chroma_client.py --index --patterns "**/*.java,**/*.py"
 ```
 
-## 🚀 GPU Acceleration
+## 🚀 GPU Acceleration (New in v1.1.0)
 
-For faster embedding generation, enable GPU acceleration:
+Accelerate embedding generation with GPU support for NVIDIA CUDA and Apple Silicon MPS:
 
 ### Installation with GPU Support
 
 ```bash
-# For NVIDIA GPUs (CUDA)
+# For NVIDIA GPUs (CUDA) - 10-16x speedup
 pip install -r requirements-gpu.txt
 
-# For Apple Silicon (MPS)
+# For Apple Silicon (MPS) - 8-12x speedup
 pip install torch torchvision torchaudio
 pip install -r requirements.txt
+
+# Or install with optional dependencies
+pip install ".[gpu]"
 ```
 
-### Usage
+### Usage Examples
 
 ```bash
-# Enable GPU acceleration
+# Enable GPU acceleration (auto-detect best device)
 python chroma_simple_server.py --server --gpu
 
-# Specify GPU device
-python chroma_simple_server.py --server --gpu --gpu-device cuda
+# Use specific GPU device
+python chroma_simple_server.py --server --gpu --gpu-device cuda      # NVIDIA CUDA
+python chroma_simple_server.py --server --gpu --gpu-device mps       # Apple Silicon
+python chroma_simple_server.py --server --gpu --gpu-device cpu       # Force CPU
 
-# Custom batch size
-python chroma_simple_server.py --server --gpu --gpu-batch-size 64
+# Optimize for batch processing
+python chroma_simple_server.py --server --gpu --gpu-batch-size 64 --gpu-mixed-precision
 
-# Enable mixed precision
-python chroma_simple_server.py --server --gpu --gpu-mixed-precision
+# Index with GPU acceleration
+python chroma_simple_server.py --index --gpu --gpu-device auto
 ```
 
-### Performance Gains
+### Complete GPU Options
 
-| Scenario | CPU Time | GPU Time (CUDA) | Speedup |
-|----------|----------|-----------------|---------|
-| Single query | ~50ms | ~20ms | 2.5x |
-| Batch (32 texts) | ~1600ms | ~100ms | 16x |
-| Indexing (1000 files) | ~300s | ~30s | 10x |
+```bash
+--gpu                    # Enable GPU acceleration
+--gpu-device auto        # Device: auto, cuda, cpu, mps (default: auto)
+--gpu-batch-size 32      # Batch size for GPU processing (default: 32)
+--gpu-mixed-precision    # Enable mixed precision (float16)
+--gpu-cache-size 1000    # Embedding cache size (default: 1000)
+```
 
-See [GPU Acceleration Guide](docs/GPU_ACCELERATION.md) for detailed instructions.
+### Performance Gains (Tested on Apple M1)
+
+| Operation | CPU Time | GPU Time (MPS) | Speedup |
+|-----------|----------|----------------|---------|
+| Search query | 4-39ms | 2-4ms | 2.6x-14.7x |
+| Batch encoding (32 texts) | 204ms | 85ms | 2.4x |
+| Batch encoding (64 texts) | 304ms | 24ms | 12.6x |
+| Batch encoding (128 texts) | 601ms | 49ms | 12.3x |
+
+**Expected performance on NVIDIA CUDA:** 10-16x speedup for batch processing
+
+See [GPU Acceleration Guide](docs/GPU_ACCELERATION.md) for detailed instructions and [Performance Tests](ENTERPRISE_PERFORMANCE_TEST_WITH_GPU.md) for complete results.
 
 ## 📈 Performance
 
-### CPU Mode
+### CPU Mode (Baseline)
 | Operation | Time | Memory | Storage |
 |-----------|------|--------|---------|
 | Initial Indexing | ~2-3 sec per 100 files | ~50 MB | ~5 MB per 1000 chunks |
 | Search Query | ~1 sec | ~10 MB | - |
 | Server Runtime | - | ~100 MB | - |
+| Batch Encoding | ~210 texts/sec | ~100 MB | - |
 
-### GPU Mode (NVIDIA CUDA)
+### GPU Mode (Apple M1 MPS)
 | Operation | Time | Speedup | GPU Memory |
 |-----------|------|---------|------------|
-| Initial Indexing | ~0.2-0.3 sec per 100 files | 10x | ~1-2 GB |
-| Search Query | ~0.4 sec | 2.5x | ~1 GB |
-| Batch Processing | ~0.1 sec per 32 texts | 16x | ~1-2 GB |
+| Search Query | 2-4ms | 2.6x-14.7x | ~1 GB |
+| Batch Encoding | ~2,600 texts/sec | 12.3x | ~1-2 GB |
+| Large Projects | 5-8x faster than grep | - | ~1-2 GB |
+
+### GPU Mode (NVIDIA CUDA - Expected)
+| Operation | Time | Speedup | GPU Memory |
+|-----------|------|---------|------------|
+| Search Query | ~20ms | 2.5x | ~1 GB |
+| Batch Encoding | ~3,400 texts/sec | 16x | ~1-2 GB |
+| Indexing | ~0.2-0.3 sec per 100 files | 10x | ~1-2 GB |
+
+**See complete performance tests:** [ENTERPRISE_PERFORMANCE_TEST.md](ENTERPRISE_PERFORMANCE_TEST.md) | [GPU Acceleration Tests](ENTERPRISE_PERFORMANCE_TEST_WITH_GPU.md)
 
 ## 🔍 Search Examples
 
@@ -353,8 +381,30 @@ CMD ["python", "chroma_simple_server.py", "--server", "--port", "8765"]
      "chroma_find_similar": {
        "description": "Find code similar to given snippet"
      }
-   }
-   ```
+    }
+    ```
+
+## 🗺️ Roadmap Progress
+
+### ✅ Version 1.1.0 - Completed
+- **GPU Acceleration** - CUDA and MPS support for faster embeddings (2.6x-14.7x speedup)
+- **Performance Optimization** - Batch processing and mixed precision
+- **Enterprise 1C/BSL Support** - Specialized parser with metadata extraction
+- **Memory Optimization** - Streaming processing for large codebases
+
+### 🔄 Version 1.2.0 - In Progress
+- WebSocket API for real-time updates
+- Basic web interface
+- Hybrid search (semantic + keyword)
+- Enhanced authentication (JWT, API keys)
+
+### 📅 Future Plans
+- Support for 1M+ files in collections
+- GitHub/GitLab integration
+- IDE plugins (VS Code, IntelliJ, PyCharm)
+- Kubernetes operator and Helm charts
+
+**See full roadmap:** [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) | [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)
 
 ## 📄 License
 

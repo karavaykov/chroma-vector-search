@@ -16,6 +16,7 @@ Chroma Vector Search 是一个语义代码搜索工具，通过简单的 TCP 协
 - **与 OpenCode 集成** - 通过自定义工具配置
 - **完整文档** - API、部署、使用示例
 - **测试和 CI/CD** - 通过 GitHub Actions 自动测试
+- **GPU 加速** - 支持 CUDA 和 MPS 用于快速嵌入生成（2.6x-14.7x 加速）
 
 ## 🚀 快速开始
 
@@ -78,6 +79,46 @@ python chroma_client.py search "错误处理函数"
 显示支付处理的实现
 查找数据库操作相关的类
 ```
+
+## 🚀 GPU 加速（v1.1.0 新功能）
+
+通过 NVIDIA CUDA 和 Apple Silicon MPS 的 GPU 支持加速嵌入生成：
+
+### 安装 GPU 支持
+
+```bash
+# 适用于 NVIDIA GPU (CUDA) - 10-16x 加速
+pip install -r requirements-gpu.txt
+
+# 适用于 Apple Silicon (MPS) - 8-12x 加速
+pip install torch torchvision torchaudio
+pip install -r requirements.txt
+```
+
+### 使用方法
+
+```bash
+# 启用 GPU 加速（自动检测最佳设备）
+python chroma_simple_server.py --server --gpu
+
+# 使用特定 GPU 设备
+python chroma_simple_server.py --server --gpu --gpu-device cuda      # NVIDIA CUDA
+python chroma_simple_server.py --server --gpu --gpu-device mps       # Apple Silicon
+python chroma_simple_server.py --server --gpu --gpu-device cpu       # 强制使用 CPU
+
+# 批量处理优化
+python chroma_simple_server.py --server --gpu --gpu-batch-size 64 --gpu-mixed-precision
+```
+
+### 性能结果（在 Apple M1 上测试）
+
+| 操作 | CPU 时间 | GPU 时间 (MPS) | 加速比 |
+|------|----------|----------------|--------|
+| 搜索查询 | 4-39毫秒 | 2-4毫秒 | 2.6x-14.7x |
+| 批量处理 (64 文本) | 304毫秒 | 24毫秒 | 12.6x |
+| 批量处理 (128 文本) | 601毫秒 | 49毫秒 | 12.3x |
+
+**详细文档:** [GPU 加速指南](docs/GPU_ACCELERATION.md) | [性能测试](ENTERPRISE_PERFORMANCE_TEST_WITH_GPU.md)
 
 ## 🏗️ 架构
 
