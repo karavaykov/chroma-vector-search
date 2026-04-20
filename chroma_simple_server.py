@@ -16,6 +16,8 @@ import hashlib
 import socket
 import threading
 import time
+import pickle
+from functools import lru_cache
 
 # Chroma imports
 import chromadb
@@ -79,57 +81,158 @@ class ChromaSimpleServer:
             raise
     
     def _init_embedding_model(self):
-        """Initialize sentence transformer model for embeddings"""
+        """Initialize sentence transformer model for embeddings with caching"""
         try:
             # Use a lightweight model for code embeddings
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Embedding model initialized")
+            
+            # Create cached version of encode method
+            self._cached_encode = lru_cache(maxsize=1000)(self._encode_with_cache)
+            
+            logger.info("Embedding model initialized with caching")
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {e}")
             raise
+    
+    def _encode_with_cache(self, text: str) -> List[float]:
+        """Cached version of encode method"""
+        return self.embedding_model.encode([text]).tolist()[0]
+    
+    def encode_with_cache(self, texts: List[str]) -> List[List[float]]:
+        """Encode multiple texts with caching for duplicates"""
+        unique_texts = list(set(texts))
+        text_to_embedding = {}
+        
+        # Encode unique texts
+        for text in unique_texts:
+            embedding = self._cached_encode(text)
+            text_to_embedding[text] = embedding
+        
+        # Return embeddings in original order
+        return [text_to_embedding[text] for text in texts]
     
     def _generate_chunk_id(self, file_path: str, line_start: int) -> str:
         """Generate unique ID for code chunk"""
         content = f"{file_path}:{line_start}"
         return hashlib.md5(content.encode()).hexdigest()
     
-    def index_codebase(self, file_patterns: List[str] = None):
-        """Index the codebase for vector search"""
+    def _process_1c_bsl_file(self, content: str, file_path: str) -> List[CodeChunk]:
+        """Process 1C/BSL file with semantic chunking"""
+        chunks = []
+        
+        # Split by procedures and functions for better semantic chunks
+        lines = content.splitlines()
+        
+        # Find procedure/function boundaries
+        procedure_start = -1
+        current_procedure_lines = []
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # Check for procedure/function start
+            if stripped.lower().startswith(('процедура', 'функция', 'procedure', 'function')):
+                # Save previous procedure if exists
+                if current_procedure_lines and procedure_start >= 0:
+                    chunk_content = '\n'.join(current_procedure_lines).strip()
+                    if len(chunk_content) >= 20:
+                        chunk = CodeChunk(
+                            content=chunk_content,
+                            file_path=file_path,
+                            line_start=procedure_start + 1,
+                            line_end=procedure_start + len(current_procedure_lines),
+                            language='1c_bsl',
+                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                        )
+                        chunks.append(chunk)
+                
+                # Start new procedure
+                procedure_start = i
+                current_procedure_lines = [line]
+            elif current_procedure_lines:
+                # Continue current procedure
+                current_procedure_lines.append(line)
+                
+                # Check for end of procedure (КонецПроцедуры, КонецФункции, EndProcedure, EndFunction)
+                if stripped.lower() in ('конецпроцедуры', 'конецфункции', 'endprocedure', 'endfunction'):
+                    # Save completed procedure
+                    chunk_content = '\n'.join(current_procedure_lines).strip()
+                    if len(chunk_content) >= 20:
+                        chunk = CodeChunk(
+                            content=chunk_content,
+                            file_path=file_path,
+                            line_start=procedure_start + 1,
+                            line_end=procedure_start + len(current_procedure_lines),
+                            language='1c_bsl',
+                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                        )
+                        chunks.append(chunk)
+                    
+                    # Reset for next procedure
+                    procedure_start = -1
+                    current_procedure_lines = []
+        
+        # Save last procedure if exists
+        if current_procedure_lines and procedure_start >= 0:
+            chunk_content = '\n'.join(current_procedure_lines).strip()
+            if len(chunk_content) >= 20:
+                chunk = CodeChunk(
+                    content=chunk_content,
+                    file_path=file_path,
+                    line_start=procedure_start + 1,
+                    line_end=procedure_start + len(current_procedure_lines),
+                    language='1c_bsl',
+                    chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                )
+                chunks.append(chunk)
+        
+        # If no procedures found, fall back to line-based chunking
+        if not chunks:
+            chunk_size = 15
+            overlap = 3
+            
+            for i in range(0, len(lines), chunk_size - overlap):
+                chunk_lines = lines[i:i + chunk_size]
+                if not chunk_lines:
+                    continue
+                
+                chunk_content = '\n'.join(chunk_lines).strip()
+                if not chunk_content or len(chunk_content) < 20:
+                    continue
+                
+                chunk = CodeChunk(
+                    content=chunk_content,
+                    file_path=file_path,
+                    line_start=i + 1,
+                    line_end=i + len(chunk_lines),
+                    language='1c_bsl',
+                    chunk_id=self._generate_chunk_id(file_path, i + 1)
+                )
+                chunks.append(chunk)
+        
+        return chunks
+    
+    def index_codebase(self, file_patterns: List[str] = None, max_file_size_mb: int = 10):
+        """Index the codebase for vector search with streaming processing
+        
+        Args:
+            file_patterns: List of file patterns to index
+            max_file_size_mb: Maximum file size in MB to index (larger files will be skipped)
+        """
         from glob import glob
         
         if file_patterns is None:
-            file_patterns = ["**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/*.md", "**/*.txt"]
+            file_patterns = ["**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/*.md", "**/*.txt", "**/*.bsl", "**/*.os", "**/*.xml"]
         
-        chunks = []
-        total_files = 0
-        
-        for pattern in file_patterns:
-            files = glob(str(self.project_root / pattern), recursive=True)
-            for file_path in files:
-                try:
-                    # Skip hidden files and directories
-                    if any(part.startswith('.') for part in Path(file_path).parts):
-                        continue
-                    
-                    file_chunks = self._process_file(file_path)
-                    chunks.extend(file_chunks)
-                    total_files += 1
-                    if total_files % 10 == 0:
-                        logger.info(f"Processed {total_files} files...")
-                except Exception as e:
-                    logger.warning(f"Failed to process {file_path}: {e}")
-        
-        if not chunks:
-            logger.warning("No code chunks found to index")
-            return 0
-        
-        # Process in batches to avoid size limits
         batch_size = 1000
+        current_batch = []
+        total_files = 0
         total_indexed = 0
         
-        for i in range(0, len(chunks), batch_size):
-            batch_end = min(i + batch_size, len(chunks))
-            batch_chunks = chunks[i:batch_end]
+        def process_batch(batch_chunks):
+            """Process a batch of chunks and add to Chroma"""
+            if not batch_chunks:
+                return 0
             
             # Prepare batch data for Chroma
             batch_ids = [chunk.chunk_id for chunk in batch_chunks]
@@ -141,8 +244,8 @@ class ChromaSimpleServer:
                 "language": chunk.language
             } for chunk in batch_chunks]
             
-            # Generate embeddings for batch
-            batch_embeddings = self.embedding_model.encode(batch_contents).tolist()
+            # Generate embeddings for batch with caching
+            batch_embeddings = self.encode_with_cache(batch_contents)
             
             # Add batch to collection
             self.collection.add(
@@ -152,8 +255,50 @@ class ChromaSimpleServer:
                 ids=batch_ids
             )
             
-            total_indexed += len(batch_chunks)
-            logger.info(f"Indexed batch {i//batch_size + 1}: {len(batch_chunks)} chunks (total: {total_indexed})")
+            return len(batch_chunks)
+        
+        for pattern in file_patterns:
+            files = glob(str(self.project_root / pattern), recursive=True)
+            for file_path in files:
+                try:
+                    # Skip hidden files and directories
+                    if any(part.startswith('.') for part in Path(file_path).parts):
+                        continue
+                    
+                    # Check file size
+                    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                    if file_size_mb > max_file_size_mb:
+                        logger.info(f"Skipping large file: {file_path} ({file_size_mb:.1f} MB > {max_file_size_mb} MB limit)")
+                        continue
+                    
+                    # Process file and get chunks
+                    file_chunks = self._process_file(file_path)
+                    
+                    # Add chunks to current batch
+                    current_batch.extend(file_chunks)
+                    
+                    # Process batch if it reaches batch_size
+                    if len(current_batch) >= batch_size:
+                        batch_indexed = process_batch(current_batch)
+                        total_indexed += batch_indexed
+                        current_batch = []
+                        logger.info(f"Indexed batch: {batch_indexed} chunks (total: {total_indexed})")
+                    
+                    total_files += 1
+                    if total_files % 10 == 0:
+                        logger.info(f"Processed {total_files} files...")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to process {file_path}: {e}")
+        
+        # Process remaining chunks in final batch
+        if current_batch:
+            batch_indexed = process_batch(current_batch)
+            total_indexed += batch_indexed
+            logger.info(f"Indexed final batch: {batch_indexed} chunks (total: {total_indexed})")
+        
+        if total_indexed == 0:
+            logger.warning("No code chunks found to index")
         
         logger.info(f"Total indexed {total_indexed} code chunks from {total_files} files")
         return total_indexed
@@ -189,18 +334,26 @@ class ChromaSimpleServer:
             '.xml': 'xml',
             '.yml': 'yaml',
             '.yaml': 'yaml',
-            '.properties': 'properties'
+            '.properties': 'properties',
+            '.bsl': '1c_bsl',
+            '.os': '1c_bsl'
         }
         language = language_map.get(ext, 'text')
         
         # Read file content
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
+                content = f.read()
         except UnicodeDecodeError:
             # Skip binary files
             return []
         
+        # Use specialized processing for 1C/BSL files
+        if language == '1c_bsl':
+            return self._process_1c_bsl_file(content, str(relative_path))
+        
+        # Default processing for other languages
+        lines = content.splitlines()
         chunks = []
         chunk_size = 15  # lines per chunk
         overlap = 3      # overlapping lines
@@ -210,12 +363,12 @@ class ChromaSimpleServer:
             if not chunk_lines:
                 continue
             
-            content = ''.join(chunk_lines).strip()
-            if not content or len(content) < 20:  # Skip very small chunks
+            chunk_content = '\n'.join(chunk_lines).strip()
+            if not chunk_content or len(chunk_content) < 20:  # Skip very small chunks
                 continue
             
             chunk = CodeChunk(
-                content=content,
+                content=chunk_content,
                 file_path=str(relative_path),
                 line_start=i + 1,
                 line_end=i + len(chunk_lines),
@@ -231,8 +384,8 @@ class ChromaSimpleServer:
         if not self.embedding_model or not self.collection:
             raise RuntimeError("Server not properly initialized")
         
-        # Generate query embedding
-        query_embedding = self.embedding_model.encode([query]).tolist()[0]
+        # Generate query embedding with caching
+        query_embedding = self._cached_encode(query)
         
         # Search in Chroma
         results = self.collection.query(
