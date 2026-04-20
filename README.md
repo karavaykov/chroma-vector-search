@@ -1,11 +1,13 @@
 # Chroma Vector Search for OpenCode
 
+[English](README.md) | [Русский](README.ru.md) | [中文](README.zh.md)
+
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5+-green.svg)](https://www.trychroma.com/)
 [![OpenCode](https://img.shields.io/badge/OpenCode-Integration-orange.svg)](https://opencode.ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Semantic code search integration for OpenCode using ChromaDB vector database. Enables natural language search across your codebase.
+Semantic code search integration for OpenCode using ChromaDB vector database. Enables natural language search across your codebase. TCP-based alternative to MCP (Python 3.9+ compatible).
 
 ## 🚀 Quick Start
 
