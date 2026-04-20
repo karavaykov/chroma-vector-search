@@ -29,6 +29,41 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 @dataclass
+class EnterpriseMetadata:
+    """Enterprise metadata for 1C/BSL code"""
+    object_type: str = ""  # Procedure, Function, Module, etc.
+    object_name: str = ""  # Name of the procedure/function
+    module_type: str = ""  # CommonModule, Document, Catalog, etc.
+    subsystem: str = ""    # Subsystem name
+    author: str = ""       # Author information
+    created_date: str = "" # Creation date
+    modified_date: str = "" # Last modification date
+    version: str = ""      # Version information
+    description: str = ""  # Description/comment
+    parameters: List[str] = None  # Function/procedure parameters
+    return_type: str = ""  # Return type for functions
+    export: bool = False   # Is exported
+    deprecated: bool = False # Is deprecated
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for Chroma metadata"""
+        return {
+            "object_type": self.object_type,
+            "object_name": self.object_name,
+            "module_type": self.module_type,
+            "subsystem": self.subsystem,
+            "author": self.author,
+            "created_date": self.created_date,
+            "modified_date": self.modified_date,
+            "version": self.version,
+            "description": self.description,
+            "parameters": json.dumps(self.parameters) if self.parameters else "",
+            "return_type": self.return_type,
+            "export": str(self.export),
+            "deprecated": str(self.deprecated)
+        }
+
+@dataclass
 class CodeChunk:
     """Represents a chunk of code with metadata"""
     content: str
@@ -37,6 +72,7 @@ class CodeChunk:
     line_end: int
     language: str
     chunk_id: str
+    enterprise_metadata: EnterpriseMetadata = None
 
 class ChromaSimpleServer:
     """Simple server for Chroma vector search without MCP"""
@@ -116,8 +152,142 @@ class ChromaSimpleServer:
         content = f"{file_path}:{line_start}"
         return hashlib.md5(content.encode()).hexdigest()
     
+    def _extract_1c_metadata(self, lines: List[str], start_line: int, end_line: int, file_path: str) -> EnterpriseMetadata:
+        """Extract enterprise metadata from 1C/BSL code block"""
+        metadata = EnterpriseMetadata()
+        
+        # Extract object type and name from first line
+        if start_line < len(lines):
+            first_line = lines[start_line].strip()
+            first_lower = first_line.lower()
+            
+            if first_lower.startswith('процедура'):
+                metadata.object_type = "Procedure"
+                # Extract procedure name
+                name_start = first_line.find('Процедура') + 9
+                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
+                metadata.object_name = first_line[name_start:name_end].strip()
+                
+            elif first_lower.startswith('функция'):
+                metadata.object_type = "Function"
+                # Extract function name
+                name_start = first_line.find('Функция') + 7
+                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
+                metadata.object_name = first_line[name_start:name_end].strip()
+                
+            elif first_lower.startswith('procedure'):
+                metadata.object_type = "Procedure"
+                name_start = first_line.find('Procedure') + 9
+                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
+                metadata.object_name = first_line[name_start:name_end].strip()
+                
+            elif first_lower.startswith('function'):
+                metadata.object_type = "Function"
+                name_start = first_line.find('Function') + 8
+                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
+                metadata.object_name = first_line[name_start:name_end].strip()
+        
+        # Extract parameters from first line
+        if '(' in first_line and ')' in first_line:
+            params_start = first_line.find('(') + 1
+            params_end = first_line.find(')', params_start)
+            params_str = first_line[params_start:params_end].strip()
+            if params_str:
+                metadata.parameters = [p.strip() for p in params_str.split(',')]
+        
+        # Extract return type for functions
+        if metadata.object_type == "Function" and 'возврат' in first_lower:
+            return_start = first_lower.find('возврат')
+            metadata.return_type = first_line[return_start + 7:].strip()
+        
+        # Check for export keyword (can be for both procedures and functions)
+        if 'экспорт' in first_lower or 'export' in first_lower:
+            metadata.export = True
+        
+        # Look for comments and metadata in preceding lines
+        comment_lines = []
+        for i in range(max(0, start_line - 10), start_line):
+            line = lines[i]
+            stripped = line.strip()
+            if stripped.startswith('//'):
+                # Remove '//' and any following whitespace
+                comment = line[line.find('//') + 2:].strip()
+                comment_lines.append(comment)
+            elif stripped.startswith('#'):
+                comment = line[line.find('#') + 1:].strip()
+                comment_lines.append(comment)
+        
+        # Parse comments for metadata
+        for comment in comment_lines:
+            comment_lower = comment.lower()
+            
+            # Author
+            if any(marker in comment_lower for marker in ['автор:', 'author:', 'разработчик:', 'developer:']):
+                for marker in ['автор:', 'author:', 'разработчик:', 'developer:']:
+                    if marker in comment_lower:
+                        # Remove marker and any following colon/space
+                        value = comment[comment.find(marker) + len(marker):].strip()
+                        # Remove leading colon if present
+                        if value.startswith(':'):
+                            value = value[1:].strip()
+                        metadata.author = value
+                        break
+            
+            # Date
+            elif any(marker in comment_lower for marker in ['дата:', 'date:', 'создано:', 'created:']):
+                for marker in ['дата:', 'date:', 'создано:', 'created:']:
+                    if marker in comment_lower:
+                        value = comment[comment.find(marker) + len(marker):].strip()
+                        if value.startswith(':'):
+                            value = value[1:].strip()
+                        metadata.created_date = value
+                        break
+            
+            # Version
+            elif any(marker in comment_lower for marker in ['версия:', 'version:', 'ver:']):
+                for marker in ['версия:', 'version:', 'ver:']:
+                    if marker in comment_lower:
+                        value = comment[comment.find(marker) + len(marker):].strip()
+                        if value.startswith(':'):
+                            value = value[1:].strip()
+                        metadata.version = value
+                        break
+            
+            # Description (first non-metadata comment)
+            elif not metadata.description and comment:
+                metadata.description = comment
+        
+        # Determine module type from file path
+        path_parts = Path(file_path).parts
+        for part in path_parts:
+            part_lower = part.lower()
+            if 'commonmodule' in part_lower or 'общиймодуль' in part_lower:
+                metadata.module_type = "CommonModule"
+                break
+            elif 'document' in part_lower or 'документ' in part_lower:
+                metadata.module_type = "Document"
+                break
+            elif 'catalog' in part_lower or 'справочник' in part_lower:
+                metadata.module_type = "Catalog"
+                break
+            elif 'report' in part_lower or 'отчет' in part_lower:
+                metadata.module_type = "Report"
+                break
+            elif 'dataprocessor' in part_lower or 'обработка' in part_lower:
+                metadata.module_type = "DataProcessor"
+                break
+        
+        # Determine subsystem from file path
+        for i, part in enumerate(path_parts):
+            if 'subsystem' in part.lower() or 'подсистема' in part.lower():
+                if i + 1 < len(path_parts):
+                    metadata.subsystem = path_parts[i + 1]
+                break
+        
+        return metadata
+    
     def _process_1c_bsl_file(self, content: str, file_path: str) -> List[CodeChunk]:
-        """Process 1C/BSL file with semantic chunking"""
+        """Process 1C/BSL file with semantic chunking and enterprise metadata"""
         chunks = []
         
         # Split by procedures and functions for better semantic chunks
@@ -136,13 +306,21 @@ class ChromaSimpleServer:
                 if current_procedure_lines and procedure_start >= 0:
                     chunk_content = '\n'.join(current_procedure_lines).strip()
                     if len(chunk_content) >= 20:
+                        # Extract metadata
+                        metadata = self._extract_1c_metadata(
+                            lines, procedure_start, 
+                            procedure_start + len(current_procedure_lines) - 1,
+                            file_path
+                        )
+                        
                         chunk = CodeChunk(
                             content=chunk_content,
                             file_path=file_path,
                             line_start=procedure_start + 1,
                             line_end=procedure_start + len(current_procedure_lines),
                             language='1c_bsl',
-                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1),
+                            enterprise_metadata=metadata
                         )
                         chunks.append(chunk)
                 
@@ -158,13 +336,21 @@ class ChromaSimpleServer:
                     # Save completed procedure
                     chunk_content = '\n'.join(current_procedure_lines).strip()
                     if len(chunk_content) >= 20:
+                        # Extract metadata
+                        metadata = self._extract_1c_metadata(
+                            lines, procedure_start,
+                            procedure_start + len(current_procedure_lines) - 1,
+                            file_path
+                        )
+                        
                         chunk = CodeChunk(
                             content=chunk_content,
                             file_path=file_path,
                             line_start=procedure_start + 1,
                             line_end=procedure_start + len(current_procedure_lines),
                             language='1c_bsl',
-                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1),
+                            enterprise_metadata=metadata
                         )
                         chunks.append(chunk)
                     
@@ -176,13 +362,21 @@ class ChromaSimpleServer:
         if current_procedure_lines and procedure_start >= 0:
             chunk_content = '\n'.join(current_procedure_lines).strip()
             if len(chunk_content) >= 20:
+                # Extract metadata
+                metadata = self._extract_1c_metadata(
+                    lines, procedure_start,
+                    procedure_start + len(current_procedure_lines) - 1,
+                    file_path
+                )
+                
                 chunk = CodeChunk(
                     content=chunk_content,
                     file_path=file_path,
                     line_start=procedure_start + 1,
                     line_end=procedure_start + len(current_procedure_lines),
                     language='1c_bsl',
-                    chunk_id=self._generate_chunk_id(file_path, procedure_start + 1)
+                    chunk_id=self._generate_chunk_id(file_path, procedure_start + 1),
+                    enterprise_metadata=metadata
                 )
                 chunks.append(chunk)
         
@@ -200,15 +394,92 @@ class ChromaSimpleServer:
                 if not chunk_content or len(chunk_content) < 20:
                     continue
                 
+                # Extract basic metadata for non-procedure chunks
+                metadata = EnterpriseMetadata()
+                metadata.object_type = "CodeBlock"
+                metadata.module_type = self._detect_module_type_from_path(file_path)
+                
                 chunk = CodeChunk(
                     content=chunk_content,
                     file_path=file_path,
                     line_start=i + 1,
                     line_end=i + len(chunk_lines),
                     language='1c_bsl',
-                    chunk_id=self._generate_chunk_id(file_path, i + 1)
+                    chunk_id=self._generate_chunk_id(file_path, i + 1),
+                    enterprise_metadata=metadata
                 )
                 chunks.append(chunk)
+        
+        return chunks
+    
+    def _detect_module_type_from_path(self, file_path: str) -> str:
+        """Detect module type from file path"""
+        path_parts = Path(file_path).parts
+        for part in path_parts:
+            part_lower = part.lower()
+            if 'commonmodule' in part_lower or 'общиймодуль' in part_lower:
+                return "CommonModule"
+            elif 'document' in part_lower or 'документ' in part_lower:
+                return "Document"
+            elif 'catalog' in part_lower or 'справочник' in part_lower:
+                return "Catalog"
+            elif 'report' in part_lower or 'отчет' in part_lower:
+                return "Report"
+            elif 'dataprocessor' in part_lower or 'обработка' in part_lower:
+                return "DataProcessor"
+            elif 'informationregister' in part_lower or 'регистры' in part_lower:
+                return "InformationRegister"
+            elif 'accumulationregister' in part_lower or 'регистрынакопления' in part_lower:
+                return "AccumulationRegister"
+            elif 'accountingregister' in part_lower or 'регистрыбухгалтерии' in part_lower:
+                return "AccountingRegister"
+            elif 'calculationregister' in part_lower or 'регистрырасчета' in part_lower:
+                return "CalculationRegister"
+        return "Unknown"
+    
+    def _create_contextual_chunks(self, lines: List[str], file_path: str, base_metadata: EnterpriseMetadata) -> List[CodeChunk]:
+        """Create contextual chunks for 1C/BSL code with surrounding context"""
+        chunks = []
+        chunk_size = 20  # Lines per chunk
+        context_lines = 5  # Additional context lines
+        
+        for i in range(0, len(lines), chunk_size):
+            # Calculate chunk boundaries with context
+            chunk_start = max(0, i - context_lines)
+            chunk_end = min(len(lines), i + chunk_size + context_lines)
+            
+            chunk_lines = lines[chunk_start:chunk_end]
+            if not chunk_lines:
+                continue
+            
+            chunk_content = '\n'.join(chunk_lines).strip()
+            if not chunk_content or len(chunk_content) < 20:
+                continue
+            
+            # Create metadata with context information
+            metadata = EnterpriseMetadata(
+                object_type=base_metadata.object_type,
+                object_name=base_metadata.object_name,
+                module_type=base_metadata.module_type,
+                subsystem=base_metadata.subsystem,
+                author=base_metadata.author,
+                description=f"Contextual chunk: lines {chunk_start+1}-{chunk_end}",
+                parameters=base_metadata.parameters,
+                return_type=base_metadata.return_type,
+                export=base_metadata.export,
+                deprecated=base_metadata.deprecated
+            )
+            
+            chunk = CodeChunk(
+                content=chunk_content,
+                file_path=file_path,
+                line_start=chunk_start + 1,
+                line_end=chunk_end,
+                language='1c_bsl',
+                chunk_id=self._generate_chunk_id(file_path, chunk_start + 1),
+                enterprise_metadata=metadata
+            )
+            chunks.append(chunk)
         
         return chunks
     
@@ -237,12 +508,23 @@ class ChromaSimpleServer:
             # Prepare batch data for Chroma
             batch_ids = [chunk.chunk_id for chunk in batch_chunks]
             batch_contents = [chunk.content for chunk in batch_chunks]
-            batch_metadatas = [{
-                "file_path": chunk.file_path,
-                "line_start": chunk.line_start,
-                "line_end": chunk.line_end,
-                "language": chunk.language
-            } for chunk in batch_chunks]
+            batch_metadatas = []
+            
+            for chunk in batch_chunks:
+                # Base metadata
+                metadata = {
+                    "file_path": chunk.file_path,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
+                    "language": chunk.language
+                }
+                
+                # Add enterprise metadata if available
+                if chunk.enterprise_metadata:
+                    enterprise_dict = chunk.enterprise_metadata.to_dict()
+                    metadata.update(enterprise_dict)
+                
+                batch_metadatas.append(metadata)
             
             # Generate embeddings for batch with caching
             batch_embeddings = self.encode_with_cache(batch_contents)
