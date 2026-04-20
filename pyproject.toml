@@ -42,6 +42,10 @@ dev = [
     "mypy>=1.0.0",
     "isort>=5.12.0",
 ]
+gpu = [
+    "torch>=2.0.0",
+    "sentence-transformers[gpu]>=2.2.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/chroma-vector-search"

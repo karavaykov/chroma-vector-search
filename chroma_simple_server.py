@@ -74,10 +74,30 @@ class CodeChunk:
     chunk_id: str
     enterprise_metadata: EnterpriseMetadata = None
 
+@dataclass
+class GPUConfig:
+    """Configuration for GPU acceleration"""
+    enabled: bool = False
+    device: str = "auto"  # "auto", "cuda", "cpu", "mps"
+    batch_size: int = 32
+    use_mixed_precision: bool = True
+    cache_size: int = 1000
+    
+    def __post_init__(self):
+        """Validate configuration"""
+        if self.device not in ["auto", "cuda", "cpu", "mps"]:
+            raise ValueError(f"Invalid device: {self.device}. Must be one of: auto, cuda, cpu, mps")
+        
+        if self.batch_size < 1:
+            raise ValueError(f"Batch size must be positive: {self.batch_size}")
+        
+        if self.cache_size < 0:
+            raise ValueError(f"Cache size must be non-negative: {self.cache_size}")
+
 class ChromaSimpleServer:
     """Simple server for Chroma vector search without MCP"""
     
-    def __init__(self, project_root: str = ".", port: int = 8765):
+    def __init__(self, project_root: str = ".", port: int = 8765, gpu_config: GPUConfig = None):
         self.project_root = Path(project_root).resolve()
         self.port = port
         self.chroma_client = None
@@ -86,6 +106,10 @@ class ChromaSimpleServer:
         self.collection_name = "codebase_vectors"
         self.server_socket = None
         self.running = False
+        self.device = "cpu"
+        
+        # GPU configuration
+        self.gpu_config = gpu_config if gpu_config else GPUConfig()
         
         # Initialize Chroma
         self._init_chroma()
@@ -119,23 +143,115 @@ class ChromaSimpleServer:
     def _init_embedding_model(self):
         """Initialize sentence transformer model for embeddings with caching"""
         try:
-            # Use a lightweight model for code embeddings
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            if self.gpu_config.enabled:
+                self._init_embedding_model_gpu()
+            else:
+                self._init_embedding_model_cpu()
             
-            # Create cached version of encode method
-            self._cached_encode = lru_cache(maxsize=1000)(self._encode_with_cache)
-            
-            logger.info("Embedding model initialized with caching")
+            logger.info(f"Embedding model initialized (device: {self.device}, caching: enabled)")
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {e}")
             raise
     
+    def _init_embedding_model_cpu(self):
+        """Initialize model for CPU only"""
+        # Use a lightweight model for code embeddings
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.device = "cpu"
+        
+        # Create cached version of encode method
+        self._cached_encode = lru_cache(maxsize=self.gpu_config.cache_size)(self._encode_with_cache)
+    
+    def _init_embedding_model_gpu(self):
+        """Initialize model with GPU support"""
+        try:
+            import torch
+            
+            # Determine device
+            if self.gpu_config.device == "auto":
+                if torch.cuda.is_available():
+                    self.device = "cuda"
+                    logger.info("CUDA GPU detected, using CUDA")
+                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                    self.device = "mps"
+                    logger.info("Apple Silicon (MPS) detected, using MPS")
+                else:
+                    self.device = "cpu"
+                    logger.warning("No GPU detected, falling back to CPU")
+            else:
+                self.device = self.gpu_config.device
+            
+            # Load model
+            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            # Move to device
+            if self.device != "cpu":
+                self.embedding_model.to(self.device)
+                logger.info(f"Model moved to {self.device}")
+            
+            # Enable mixed precision if requested and supported
+            if (self.gpu_config.use_mixed_precision and 
+                self.device != "cpu" and 
+                self.device != "mps"):  # MPS doesn't fully support float16
+                try:
+                    self.embedding_model.half()
+                    logger.info("Mixed precision (float16) enabled")
+                except Exception as e:
+                    logger.warning(f"Failed to enable mixed precision: {e}")
+            
+            # Create cached version of encode method
+            self._cached_encode = lru_cache(maxsize=self.gpu_config.cache_size)(self._encode_with_cache)
+            
+            # Warm up model
+            self._warm_up_model()
+            
+        except ImportError:
+            logger.warning("PyTorch not installed for GPU support, falling back to CPU")
+            self._init_embedding_model_cpu()
+        except Exception as e:
+            logger.error(f"Failed to initialize GPU model: {e}, falling back to CPU")
+            self._init_embedding_model_cpu()
+    
+    def _warm_up_model(self):
+        """Warm up the model with dummy data"""
+        try:
+            if self.device != "cpu":
+                dummy_text = "Model warm up"
+                self.embedding_model.encode([dummy_text])
+                logger.info("Model warmed up successfully")
+        except Exception as e:
+            logger.warning(f"Model warm up failed: {e}")
+    
     def _encode_with_cache(self, text: str) -> List[float]:
         """Cached version of encode method"""
-        return self.embedding_model.encode([text]).tolist()[0]
+        if self.gpu_config.enabled and self.device != "cpu":
+            return self._encode_single_gpu(text)
+        else:
+            return self.embedding_model.encode([text]).tolist()[0]
+    
+    def _encode_single_gpu(self, text: str) -> List[float]:
+        """Encode single text on GPU"""
+        import torch
+        
+        # Encode on GPU
+        embedding = self.embedding_model.encode(
+            [text],
+            convert_to_tensor=True,
+            show_progress_bar=False
+        )
+        
+        # Move to CPU and convert to list
+        if self.device != "cpu":
+            embedding = embedding.cpu()
+        
+        return embedding.tolist()[0]
     
     def encode_with_cache(self, texts: List[str]) -> List[List[float]]:
         """Encode multiple texts with caching for duplicates"""
+        if self.gpu_config.enabled and self.device != "cpu" and len(texts) > 1:
+            return self.encode_batch_gpu(texts)
+        
+        # Fall back to cached CPU encoding
         unique_texts = list(set(texts))
         text_to_embedding = {}
         
@@ -146,6 +262,35 @@ class ChromaSimpleServer:
         
         # Return embeddings in original order
         return [text_to_embedding[text] for text in texts]
+    
+    def encode_batch_gpu(self, texts: List[str]) -> List[List[float]]:
+        """Encode batch of texts using GPU with optimization"""
+        if not texts:
+            return []
+        
+        # Split into batches
+        batch_size = self.gpu_config.batch_size
+        batches = [texts[i:i + batch_size] 
+                  for i in range(0, len(texts), batch_size)]
+        
+        embeddings = []
+        for i, batch in enumerate(batches):
+            logger.debug(f"Processing GPU batch {i+1}/{len(batches)} (size: {len(batch)})")
+            
+            # Encode batch on GPU
+            batch_embeddings = self.embedding_model.encode(
+                batch,
+                convert_to_tensor=True,
+                show_progress_bar=False
+            )
+            
+            # Move to CPU and convert to list
+            if self.device != "cpu":
+                batch_embeddings = batch_embeddings.cpu()
+            
+            embeddings.extend(batch_embeddings.tolist())
+        
+        return embeddings
     
     def _generate_chunk_id(self, file_path: str, line_start: int) -> str:
         """Generate unique ID for code chunk"""
@@ -698,14 +843,28 @@ class ChromaSimpleServer:
         return formatted_results
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get statistics about the indexed codebase"""
+        """Get server statistics"""
         count = self.collection.count() if self.collection else 0
-        return {
+        stats = {
             "collection_name": self.collection_name,
             "document_count": count,
             "project_root": str(self.project_root),
             "port": self.port
         }
+        
+        # Add GPU information if enabled
+        if self.gpu_config.enabled:
+            stats.update({
+                "gpu_enabled": True,
+                "gpu_device": self.device,
+                "gpu_batch_size": self.gpu_config.batch_size,
+                "gpu_mixed_precision": self.gpu_config.use_mixed_precision,
+                "gpu_cache_size": self.gpu_config.cache_size
+            })
+        else:
+            stats["gpu_enabled"] = False
+        
+        return stats
     
     def handle_command(self, command: str) -> str:
         """Handle a command from client"""
@@ -750,6 +909,28 @@ class ChromaSimpleServer:
                     "type": "pong",
                     "status": "alive",
                     "timestamp": time.time()
+                })
+            
+            elif cmd == "GPUINFO":
+                import torch
+                gpu_info = {
+                    "gpu_enabled": self.gpu_config.enabled,
+                    "device": self.device,
+                    "gpu_config": {
+                        "batch_size": self.gpu_config.batch_size,
+                        "use_mixed_precision": self.gpu_config.use_mixed_precision,
+                        "cache_size": self.gpu_config.cache_size
+                    },
+                    "torch_info": {
+                        "version": torch.__version__,
+                        "cuda_available": torch.cuda.is_available(),
+                        "cuda_version": torch.version.cuda if torch.cuda.is_available() else None,
+                        "mps_available": hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+                    }
+                }
+                return json.dumps({
+                    "type": "gpu_info",
+                    "info": gpu_info
                 })
             
             else:
@@ -824,7 +1005,19 @@ class ChromaSimpleServer:
 
 def run_standalone(args):
     """Run in standalone mode (CLI)"""
-    server = ChromaSimpleServer(args.project_root)
+    # Create GPU configuration if enabled
+    gpu_config = None
+    if args.gpu:
+        gpu_config = GPUConfig(
+            enabled=True,
+            device=args.gpu_device,
+            batch_size=args.gpu_batch_size,
+            use_mixed_precision=args.gpu_mixed_precision,
+            cache_size=args.gpu_cache_size
+        )
+        print(f"GPU acceleration enabled (device: {args.gpu_device})")
+    
+    server = ChromaSimpleServer(args.project_root, gpu_config=gpu_config)
     
     if args.index:
         print("Indexing codebase...")
@@ -857,11 +1050,22 @@ def run_standalone(args):
         print(f"Project: {args.project_root}")
         print(f"Collection: {server.collection_name}")
         print(f"Documents: {server.collection.count()}")
+        
+        # Show GPU info if enabled
+        if args.gpu:
+            print(f"GPU acceleration: ENABLED (device: {server.device})")
+            print(f"GPU batch size: {args.gpu_batch_size}")
+            print(f"GPU mixed precision: {'ENABLED' if args.gpu_mixed_precision else 'DISABLED'}")
+            print(f"GPU cache size: {args.gpu_cache_size}")
+        else:
+            print(f"GPU acceleration: DISABLED")
+        
         print("\nServer commands via TCP:")
         print("  SEARCH|query|n_results  - Semantic search")
         print("  INDEX|file_patterns     - Index codebase")
         print("  STATS                   - Get statistics")
         print("  PING                    - Check server status")
+        print("  GPUINFO                 - Get GPU information")
         print("\nExample with netcat:")
         print(f"  echo 'SEARCH|database connection|5' | nc localhost {args.port}")
         print("")
@@ -893,6 +1097,18 @@ def main():
     parser.add_argument("--server", action="store_true", help="Run as TCP server")
     parser.add_argument("--port", type=int, default=8765, help="Server port")
     parser.add_argument("--project-root", type=str, default=".", help="Project root directory")
+    
+    # GPU acceleration arguments
+    parser.add_argument("--gpu", action="store_true", help="Enable GPU acceleration")
+    parser.add_argument("--gpu-device", type=str, default="auto", 
+                       choices=["auto", "cuda", "cpu", "mps"],
+                       help="GPU device to use (auto, cuda, cpu, mps)")
+    parser.add_argument("--gpu-batch-size", type=int, default=32,
+                       help="Batch size for GPU processing")
+    parser.add_argument("--gpu-mixed-precision", action="store_true",
+                       help="Enable mixed precision (float16) for GPU")
+    parser.add_argument("--gpu-cache-size", type=int, default=1000,
+                       help="Cache size for embeddings")
     
     args = parser.parse_args()
     run_standalone(args)
