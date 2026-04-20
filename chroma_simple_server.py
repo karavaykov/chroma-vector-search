@@ -123,29 +123,40 @@ class ChromaSimpleServer:
             logger.warning("No code chunks found to index")
             return 0
         
-        # Generate embeddings and add to Chroma
-        contents = [chunk.content for chunk in chunks]
-        embeddings = self.embedding_model.encode(contents).tolist()
+        # Process in batches to avoid size limits
+        batch_size = 1000
+        total_indexed = 0
         
-        # Prepare data for Chroma
-        ids = [chunk.chunk_id for chunk in chunks]
-        metadatas = [{
-            "file_path": chunk.file_path,
-            "line_start": chunk.line_start,
-            "line_end": chunk.line_end,
-            "language": chunk.language
-        } for chunk in chunks]
+        for i in range(0, len(chunks), batch_size):
+            batch_end = min(i + batch_size, len(chunks))
+            batch_chunks = chunks[i:batch_end]
+            
+            # Prepare batch data for Chroma
+            batch_ids = [chunk.chunk_id for chunk in batch_chunks]
+            batch_contents = [chunk.content for chunk in batch_chunks]
+            batch_metadatas = [{
+                "file_path": chunk.file_path,
+                "line_start": chunk.line_start,
+                "line_end": chunk.line_end,
+                "language": chunk.language
+            } for chunk in batch_chunks]
+            
+            # Generate embeddings for batch
+            batch_embeddings = self.embedding_model.encode(batch_contents).tolist()
+            
+            # Add batch to collection
+            self.collection.add(
+                embeddings=batch_embeddings,
+                documents=batch_contents,
+                metadatas=batch_metadatas,
+                ids=batch_ids
+            )
+            
+            total_indexed += len(batch_chunks)
+            logger.info(f"Indexed batch {i//batch_size + 1}: {len(batch_chunks)} chunks (total: {total_indexed})")
         
-        # Add to collection
-        self.collection.add(
-            embeddings=embeddings,
-            documents=contents,
-            metadatas=metadatas,
-            ids=ids
-        )
-        
-        logger.info(f"Indexed {len(chunks)} code chunks from {total_files} files")
-        return len(chunks)
+        logger.info(f"Total indexed {total_indexed} code chunks from {total_files} files")
+        return total_indexed
     
     def _process_file(self, file_path: str) -> List[CodeChunk]:
         """Process a single file into code chunks"""
