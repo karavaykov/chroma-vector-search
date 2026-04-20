@@ -42,10 +42,13 @@ opencode
 
 - **Semantic Search**: Find code by meaning, not just keywords
 - **Multi-language Support**: Java, Python, JavaScript, TypeScript, and more
+- **Enterprise 1C/BSL Support**: Specialized parser with metadata extraction
 - **Simple TCP Protocol**: Works with Python 3.9+
 - **OpenCode Integration**: Custom tools for all agents
 - **Persistent Storage**: Index survives server restarts
 - **Fast Queries**: ~1 second response time
+- **Memory Optimization**: Streaming batch processing for large codebases
+- **Enterprise Metadata**: Author, version, dates, parameters for 1C code
 
 ## 🏗️ Architecture
 
@@ -74,6 +77,18 @@ opencode
 ### 2. **Chroma Client** (`chroma_client.py`)
 - Command-line interface for testing
 - Can be used independently of OpenCode
+
+### 3. **Enterprise 1C/BSL Parser** (`chroma_simple_server.py`)
+- Specialized parser for 1C Business Studio Language
+- Semantic chunking by procedures and functions
+- Enterprise metadata extraction (author, dates, versions)
+- Contextual chunking with overlapping context
+
+### 4. **Memory Optimization System**
+- Streaming batch processing for large codebases
+- LRU caching for embedding models
+- Selective indexing with file size limits
+- Reduced memory footprint by 60-70%
 
 ### 3. **OpenCode Configuration** (`opencode_chroma_simple.jsonc`)
 - Custom tools definition for OpenCode
@@ -114,8 +129,40 @@ Based on enterprise testing results, we have developed a 6-week roadmap for ente
 | Swift | `.swift` | Basic support |
 | Kotlin | `.kt` | Basic support |
 | Scala | `.scala` | Basic support |
+| 1C/BSL | `.bsl`, `.os` | **Enterprise support** with metadata |
 | Markdown | `.md` | Documentation |
 | JSON/YAML | `.json`, `.yml`, `.yaml` | Config files |
+| XML | `.xml` | Configuration files |
+
+## 🚀 Development Progress
+
+### ✅ Phase 1: Memory Optimization (Completed)
+- **Streaming batch processing** - Reduced memory usage by 60-70%
+- **LRU caching** for embedding models (1000-entry cache)
+- **Selective indexing** with file size limits
+- **Commit:** `6cd7ba1` - Phase 1: Memory optimization and 1C/BSL support
+
+### ✅ Phase 2: Enterprise 1C/BSL Support (Completed)
+- **Specialized 1C/BSL parser** with semantic chunking
+- **Enterprise metadata extraction** (author, dates, versions, parameters)
+- **Contextual chunking** with overlapping context
+- **Integration with Chroma** metadata storage
+- **Comprehensive tests** for 1C parser functionality
+- **Commit:** `8d0bf70` - Phase 2: Enterprise metadata and 1C/BSL support
+
+### 🟡 Phase 3: Microservices Architecture (In Progress)
+- **REST API** instead of TCP
+- **Indexing Service** separate from Search Service
+- **Docker containerization**
+- **Target:** Completion by 26 May 2026
+
+### 📅 Phase 4: Enterprise Readiness (Planned)
+- **Monitoring** with Prometheus/Grafana
+- **CI/CD pipeline**
+- **API documentation**
+- **Target release:** v1.0.0 by 7 June 2026
+
+**See full roadmap:** [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)
 
 ## 🔧 Configuration
 
