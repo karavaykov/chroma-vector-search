@@ -1,14 +1,49 @@
+# ChromaDB storage
 .chroma_db/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Logs
 *.log
 *.sqlite
 *.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+performance_test_results.json
+performance_test_results_*.json
+test_*.py
+test_*_project/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation
+_site/
+.sass-cache/
