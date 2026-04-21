@@ -37,8 +37,8 @@ Thumbs.db
 # Test files
 performance_test_results.json
 performance_test_results_*.json
-test_*.py
 test_*_project/
+# Note: test_*.py files are now tracked for unit tests
 
 # Temporary files
 *.tmp

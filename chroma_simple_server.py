@@ -33,6 +33,15 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("WebSocket support not available. Install with: pip install websockets")
 
+# Hybrid search support
+try:
+    from keyword_search import KeywordSearchIndex, HybridSearchOptimizer
+    from search_fuser import SearchResultFuser, SearchQualityEvaluator
+    HYBRID_SEARCH_AVAILABLE = True
+except ImportError as e:
+    HYBRID_SEARCH_AVAILABLE = False
+    logger.warning(f"Hybrid search support not available: {e}")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -122,11 +131,18 @@ class ChromaSimpleServer:
         # GPU configuration
         self.gpu_config = gpu_config if gpu_config else GPUConfig()
         
+        # Hybrid search configuration
+        self.keyword_index = None
+        self.search_fuser = None
+        
         # Initialize Chroma
         self._init_chroma()
         
         # Initialize embedding model
         self._init_embedding_model()
+        
+        # Initialize keyword index if available
+        self._init_keyword_index()
     
     def _init_chroma(self):
         """Initialize ChromaDB client and collection"""
@@ -232,6 +248,39 @@ class ChromaSimpleServer:
                 logger.info("Model warmed up successfully")
         except Exception as e:
             logger.warning(f"Model warm up failed: {e}")
+    
+    def _init_keyword_index(self):
+        """Initialize keyword search index"""
+        if not HYBRID_SEARCH_AVAILABLE:
+            logger.warning("Hybrid search modules not available. Keyword search will be disabled.")
+            return
+        
+        try:
+            self.keyword_index = KeywordSearchIndex()
+            self.search_fuser = SearchResultFuser()
+            
+            # Try to load existing keyword index
+            keyword_index_path = self.project_root / ".keyword_index.pkl"
+            if keyword_index_path.exists():
+                self.keyword_index.load(str(keyword_index_path))
+                logger.info(f"Keyword index loaded from {keyword_index_path}, documents: {self.keyword_index.get_document_count()}")
+            else:
+                logger.info("No existing keyword index found. Will be built during indexing.")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize keyword index: {e}")
+            self.keyword_index = None
+            self.search_fuser = None
+    
+    def _save_keyword_index(self):
+        """Save keyword index to disk"""
+        if self.keyword_index and HYBRID_SEARCH_AVAILABLE:
+            try:
+                keyword_index_path = self.project_root / ".keyword_index.pkl"
+                self.keyword_index.save(str(keyword_index_path))
+                logger.debug(f"Keyword index saved to {keyword_index_path}")
+            except Exception as e:
+                logger.error(f"Failed to save keyword index: {e}")
     
     def _encode_with_cache(self, text: str) -> List[float]:
         """Cached version of encode method"""
@@ -657,7 +706,7 @@ class ChromaSimpleServer:
         total_indexed = 0
         
         def process_batch(batch_chunks):
-            """Process a batch of chunks and add to Chroma"""
+            """Process a batch of chunks and add to Chroma and keyword index"""
             if not batch_chunks:
                 return 0
             
@@ -681,6 +730,17 @@ class ChromaSimpleServer:
                     metadata.update(enterprise_dict)
                 
                 batch_metadatas.append(metadata)
+                
+                # Add to keyword index if available
+                if self.keyword_index and HYBRID_SEARCH_AVAILABLE:
+                    try:
+                        self.keyword_index.add_document(
+                            chunk_id=chunk.chunk_id,
+                            content=chunk.content,
+                            metadata=metadata
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add chunk {chunk.chunk_id} to keyword index: {e}")
             
             # Generate embeddings for batch with caching
             batch_embeddings = self.encode_with_cache(batch_contents)
@@ -737,6 +797,13 @@ class ChromaSimpleServer:
         
         if total_indexed == 0:
             logger.warning("No code chunks found to index")
+        
+        # Save keyword index if it was updated
+        if self.keyword_index and HYBRID_SEARCH_AVAILABLE and total_indexed > 0:
+            self._save_keyword_index()
+            keyword_stats = self.keyword_index.get_stats()
+            logger.info(f"Keyword index updated: {keyword_stats['total_documents']} documents, "
+                       f"{keyword_stats['vocabulary_size']} unique words")
         
         logger.info(f"Total indexed {total_indexed} code chunks from {total_files} files")
         return total_indexed
@@ -853,6 +920,117 @@ class ChromaSimpleServer:
         
         return formatted_results
     
+    def keyword_search(self, query: str, n_results: int = 10) -> List[Dict[str, Any]]:
+        """Perform keyword search on indexed codebase"""
+        if not self.keyword_index or not HYBRID_SEARCH_AVAILABLE:
+            logger.warning("Keyword search not available. Returning empty results.")
+            return []
+        
+        try:
+            # Perform keyword search
+            keyword_results = self.keyword_index.search(query, n_results * 2)  # Get more results for deduplication
+            
+            # Format results
+            formatted_results = []
+            for i, result in enumerate(keyword_results):
+                formatted_results.append({
+                    "rank": i + 1,
+                    "content": result.content,
+                    "file_path": result.metadata.get("file_path", ""),
+                    "line_start": result.metadata.get("line_start", 0),
+                    "line_end": result.metadata.get("line_end", 0),
+                    "language": result.metadata.get("language", "unknown"),
+                    "similarity_score": float(result.score),
+                    "chunk_id": result.chunk_id,
+                    "search_type": "keyword"
+                })
+            
+            logger.debug(f"Keyword search returned {len(formatted_results)} results")
+            return formatted_results[:n_results]  # Return requested number of results
+            
+        except Exception as e:
+            logger.error(f"Keyword search failed: {e}")
+            return []
+    
+    def hybrid_search(
+        self, 
+        query: str, 
+        n_results: int = 10,
+        semantic_weight: float = 0.7,
+        keyword_weight: float = 0.3,
+        fusion_method: str = 'weighted',
+        search_type: str = 'hybrid'
+    ) -> List[Dict[str, Any]]:
+        """Perform hybrid search combining semantic and keyword search"""
+        
+        # Determine which searches to perform based on search_type
+        semantic_results = []
+        keyword_results = []
+        
+        if search_type in ['semantic', 'hybrid']:
+            try:
+                semantic_results = self.semantic_search(query, n_results * 2)
+                # Add search_type to semantic results
+                for result in semantic_results:
+                    result['search_type'] = 'semantic'
+            except Exception as e:
+                logger.warning(f"Semantic search failed: {e}")
+        
+        if search_type in ['keyword', 'hybrid'] and self.keyword_index and HYBRID_SEARCH_AVAILABLE:
+            try:
+                keyword_results = self.keyword_search(query, n_results * 2)
+            except Exception as e:
+                logger.warning(f"Keyword search failed: {e}")
+        
+        # If only one type of search was requested or available, return those results
+        if search_type == 'semantic' or (search_type == 'hybrid' and not keyword_results):
+            return semantic_results[:n_results]
+        
+        if search_type == 'keyword' or (search_type == 'hybrid' and not semantic_results):
+            return keyword_results[:n_results]
+        
+        # Perform hybrid fusion
+        try:
+            # Update fuser weights
+            if self.search_fuser:
+                self.search_fuser.semantic_weight = semantic_weight
+                self.search_fuser.keyword_weight = keyword_weight
+            
+            # Use hybrid search optimizer to suggest weights if not specified
+            if semantic_weight == 0.7 and keyword_weight == 0.3:  # Default weights
+                suggested_weights = HybridSearchOptimizer.suggest_weights(query)
+                semantic_weight, keyword_weight = suggested_weights
+                logger.debug(f"Using suggested weights: semantic={semantic_weight:.2f}, keyword={keyword_weight:.2f}")
+            
+            # Create fuser with specified weights
+            fuser = SearchResultFuser(semantic_weight, keyword_weight)
+            
+            # Fuse results
+            fused_results = fuser.fuse(
+                semantic_results=semantic_results,
+                keyword_results=keyword_results,
+                n_results=n_results,
+                fusion_method=fusion_method,
+                deduplicate=True
+            )
+            
+            # Add search_type to results
+            for result in fused_results:
+                result['search_type'] = 'hybrid'
+                # Ensure similarity_score is float
+                if 'similarity_score' in result:
+                    result['similarity_score'] = float(result['similarity_score'])
+            
+            logger.info(f"Hybrid search: {len(semantic_results)} semantic + "
+                       f"{len(keyword_results)} keyword → {len(fused_results)} fused results")
+            
+            return fused_results
+            
+        except Exception as e:
+            logger.error(f"Hybrid search fusion failed: {e}")
+            # Fallback: return semantic results
+            return semantic_results[:n_results]
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get server statistics"""
         count = self.collection.count() if self.collection else 0
@@ -860,7 +1038,8 @@ class ChromaSimpleServer:
             "collection_name": self.collection_name,
             "document_count": count,
             "project_root": str(self.project_root),
-            "port": self.port
+            "port": self.port,
+            "hybrid_search_available": HYBRID_SEARCH_AVAILABLE
         }
         
         # Add GPU information if enabled
@@ -874,6 +1053,18 @@ class ChromaSimpleServer:
             })
         else:
             stats["gpu_enabled"] = False
+        
+        # Add keyword index information if available
+        if self.keyword_index and HYBRID_SEARCH_AVAILABLE:
+            keyword_stats = self.keyword_index.get_stats()
+            stats.update({
+                "keyword_index_available": True,
+                "keyword_document_count": keyword_stats['total_documents'],
+                "keyword_vocabulary_size": keyword_stats['vocabulary_size'],
+                "keyword_avg_doc_length": keyword_stats['average_document_length']
+            })
+        else:
+            stats["keyword_index_available"] = False
         
         return stats
     
@@ -897,6 +1088,48 @@ class ChromaSimpleServer:
                     return json.dumps({
                         "type": "error",
                         "message": "Missing query for SEARCH"
+                    })
+            
+            elif cmd == "KEYWORD_SEARCH":
+                if len(parts) > 1:
+                    subparts = parts[1].split("|")
+                    query = subparts[0]
+                    n_results = int(subparts[1]) if len(subparts) > 1 else 10
+                    results = self.keyword_search(query, n_results)
+                    return json.dumps({
+                        "type": "search_results",
+                        "results": results
+                    }, ensure_ascii=False)
+                else:
+                    return json.dumps({
+                        "type": "error",
+                        "message": "Missing query for KEYWORD_SEARCH"
+                    })
+            
+            elif cmd == "HYBRID_SEARCH":
+                if len(parts) > 1:
+                    subparts = parts[1].split("|")
+                    query = subparts[0]
+                    n_results = int(subparts[1]) if len(subparts) > 1 else 10
+                    semantic_weight = float(subparts[2]) if len(subparts) > 2 else 0.7
+                    keyword_weight = float(subparts[3]) if len(subparts) > 3 else 0.3
+                    fusion_method = subparts[4] if len(subparts) > 4 else 'weighted'
+                    
+                    results = self.hybrid_search(
+                        query=query,
+                        n_results=n_results,
+                        semantic_weight=semantic_weight,
+                        keyword_weight=keyword_weight,
+                        fusion_method=fusion_method
+                    )
+                    return json.dumps({
+                        "type": "search_results",
+                        "results": results
+                    }, ensure_ascii=False)
+                else:
+                    return json.dumps({
+                        "type": "error",
+                        "message": "Missing query for HYBRID_SEARCH"
                     })
             
             elif cmd == "INDEX":

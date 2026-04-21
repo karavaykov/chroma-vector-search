@@ -41,6 +41,7 @@ opencode
 ## 📖 Features
 
 - **Semantic Search**: Find code by meaning, not just keywords
+- **Hybrid Search**: Combines semantic + keyword search for better accuracy
 - **Multi-language Support**: Java, Python, JavaScript, TypeScript, and more
 - **Enterprise 1C/BSL Support**: Specialized parser with metadata extraction
 - **Simple TCP Protocol**: Works with Python 3.9+
@@ -88,17 +89,23 @@ opencode
 - Enterprise metadata extraction (author, dates, versions)
 - Contextual chunking with overlapping context
 
-### 4. **Memory Optimization System**
+### 4. **Hybrid Search System** (`keyword_search.py`, `search_fuser.py`)
+- **Keyword Search**: TF-IDF based full-text search with inverted index
+- **Search Fusion**: Combines semantic and keyword results using RRF and Weighted Fusion
+- **Adaptive Weights**: Automatically adjusts weights based on query complexity
+- **Multi-level Caching**: LRU cache for embeddings and keyword index
+
+### 5. **Memory Optimization System**
 - Streaming batch processing for large codebases
 - LRU caching for embedding models
 - Selective indexing with file size limits
 - Reduced memory footprint by 60-70%
 
-### 3. **OpenCode Configuration** (`opencode_chroma_simple.jsonc`)
+### 6. **OpenCode Configuration** (`opencode_chroma_simple.jsonc`)
 - Custom tools definition for OpenCode
 - Integration with Scout, Smith, and Architect agents
 
-### 4. **Utility Scripts**
+### 7. **Utility Scripts**
 - `start_chroma_mcp.sh` - Launch script
 - `install_chroma.sh` - Dependency installer
 
@@ -195,17 +202,38 @@ MODEL = 'all-MiniLM-L6-v2'  # Embedding model
 
 ## 🎯 Usage Examples
 
+### Hybrid Search Examples
+
+```bash
+# Semantic search (default) - for conceptual queries
+python chroma_client.py --search "how to implement caching" --results 5
+
+# Keyword search - for exact function/class names
+python chroma_client.py --search "UserRepository" --search-type keyword --results 10
+
+# Hybrid search with automatic weight adjustment
+python chroma_client.py --search "create REST API endpoint" --search-type hybrid --results 8
+
+# Hybrid search with custom weights
+python chroma_client.py --search "calculateTotalPrice function" --search-type hybrid \
+  --semantic-weight 0.3 --keyword-weight 0.7 --results 5
+
+# Hybrid search with RRF fusion method
+python chroma_client.py --search "database transaction handling" --search-type hybrid \
+  --fusion-method rrf --results 5
+```
+
 ### In OpenCode Prompts
 
 ```bash
 # Semantic search for database code
 @scout Find database connection code using chroma_semantic_search
 
-# Search for UI patterns
-@scout How are Swing buttons implemented? Use semantic search
+# Keyword search for exact patterns
+@smith Find UserRepository implementations using chroma_hybrid_search with keyword_weight=0.8
 
-# Find architectural patterns
-@architect Plan feature based on existing patterns found via chroma_semantic_search
+# Hybrid search for mixed queries
+@architect Plan authentication system based on existing patterns using hybrid search
 ```
 
 ### Command Line
@@ -214,13 +242,13 @@ MODEL = 'all-MiniLM-L6-v2'  # Embedding model
 # Test server
 python chroma_client.py --ping
 
-# Search for code
+# Search for code (semantic by default)
 python chroma_client.py --search "authentication system" --results 5
 
-# Get statistics
+# Get statistics including hybrid search info
 python chroma_client.py --stats
 
-# Re-index codebase
+# Re-index codebase (includes keyword index)
 python chroma_client.py --index --patterns "**/*.java,**/*.py"
 ```
 
