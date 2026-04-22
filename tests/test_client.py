@@ -234,27 +234,29 @@ def test_command_parsing():
     
     # Create a minimal server instance
     server = ChromaSimpleServer(".")
-    
-    # Test PING command
-    response = server.handle_command("PING")
-    data = json.loads(response)
-    assert data["type"] == "pong"
-    
-    # Test STATS command
-    response = server.handle_command("STATS")
-    data = json.loads(response)
-    assert data["type"] == "stats"
-    
-    # Test SEARCH command with parameters
-    response = server.handle_command("SEARCH|test query|5")
-    data = json.loads(response)
-    # This might return error if no index, but should parse correctly
-    assert "type" in data
-    
-    # Test invalid command
-    response = server.handle_command("INVALID|param")
-    data = json.loads(response)
-    assert data["type"] == "error"
+    try:
+        # Test PING command
+        response = server.handle_command("PING")
+        data = json.loads(response)
+        assert data["type"] == "pong"
+        
+        # Test STATS command
+        response = server.handle_command("STATS")
+        data = json.loads(response)
+        assert data["type"] == "stats"
+        
+        # Test SEARCH command with parameters
+        response = server.handle_command("SEARCH|test query|5")
+        data = json.loads(response)
+        # This might return error if no index, but should parse correctly
+        assert "type" in data
+        
+        # Test invalid command
+        response = server.handle_command("INVALID|param")
+        data = json.loads(response)
+        assert data["type"] == "error"
+    finally:
+        server.close()
 
 
 if __name__ == "__main__":

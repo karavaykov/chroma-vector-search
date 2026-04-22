@@ -105,8 +105,13 @@ This document describes the calculator functionality.
     def tearDown(self):
         """Clean up temporary directory"""
         import shutil
+        import gc
+        if getattr(self, "server", None) is not None:
+            self.server.close()
+            self.server = None
+        gc.collect()
         if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     def test_indexing_with_keyword_index(self):
         """Test that indexing creates both vector and keyword indices"""
@@ -327,7 +332,7 @@ class TestPerformance(unittest.TestCase):
         # Create test server
         temp_dir = tempfile.mkdtemp(prefix="chroma_perf_test_")
         project_root = Path(temp_dir)
-        
+        server = None
         try:
             # Create a larger test file
             content = "\n".join([f"def function_{i}(): return {i}" for i in range(100)])
@@ -388,8 +393,12 @@ class TestPerformance(unittest.TestCase):
         
         finally:
             import shutil
+            import gc
+            if server is not None:
+                server.close()
+            gc.collect()
             if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == '__main__':

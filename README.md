@@ -52,6 +52,7 @@ opencode
 - **Memory Optimization**: Streaming batch processing for large codebases
 - **Enterprise Metadata**: Author, version, dates, parameters for 1C code
 - **GPU Acceleration**: CUDA and MPS support for faster embeddings (2.6x-14.7x speedup)
+- **Advanced search (v1.1.0)**: Regex over indexed text, optional context lines around hits, and streaming results (WebSocket + REST SSE)
 
 ## 🏗️ Architecture
 
@@ -279,12 +280,18 @@ The Web UI is served automatically by the API Gateway microservice:
 - **Syntax Highlighting:** Code results are displayed with proper syntax highlighting.
 - **Metadata Badges:** View 1C/BSL enterprise metadata (author, module type, calls) directly in the results.
 
+### Advanced search (v1.1.0)
+- **Regex search:** Pattern search over in-memory documents from the keyword index (index the codebase first so the keyword index is populated).
+- **Context around hits:** Use `context_lines` (symmetric) or `context_before` / `context_after` on semantic, keyword, hybrid, and regex search (monolith `chroma_simple_server.py` and WebSocket API).
+- **Streaming:** In the Web UI, enable streaming to receive hits progressively. WebSocket clients can set `stream: true` on `search` messages and handle `search_result_chunk` plus a final `search_complete`. With microservices, `POST /api/v1/search/stream` on the API Gateway proxies to the Search Service (Server-Sent Events).
+
 ## 🌐 WebSocket API (New in v1.1.0)
 
 Real-time bidirectional communication with WebSocket support:
 
 ### WebSocket Features
 - **Real-time search results**: Immediate response streaming
+- **Chunked search streaming (v1.1.0):** When `data.stream` is true, the server emits `search_result_chunk` messages and ends with `search_complete` (in addition to one-shot `search_results`).
 - **Progress updates**: Live indexing progress
 - **Event subscriptions**: Subscribe to server events
 - **Bidirectional communication**: Server can push updates
@@ -485,6 +492,18 @@ EXPOSE 8765
 CMD ["python", "chroma_simple_server.py", "--server", "--port", "8765"]
 ```
 
+## 🧪 Testing
+
+```bash
+# Full Python test suite (from repo root)
+pytest tests/ -q
+
+# 1C/BSL parser and chunking checks
+python test_1c_parser.py
+```
+
+On Windows, tests call `ChromaSimpleServer.close()` so the embedded Chroma SQLite files are released before temporary directories are removed. If you embed `ChromaSimpleServer` in your own scripts, call `close()` when you are done with a persistent client.
+
 ## 🤝 Contributing
 
 1. **Add Language Support**
@@ -517,12 +536,14 @@ CMD ["python", "chroma_simple_server.py", "--server", "--port", "8765"]
 - **Performance Optimization** - Batch processing and mixed precision
 - **Enterprise 1C/BSL Support** - Specialized parser with metadata extraction
 - **Memory Optimization** - Streaming processing for large codebases
+- **WebSocket API** - Real-time indexing and search; optional per-hit streaming (`search_result_chunk` / `search_complete`)
+- **Web UI** - Search, hybrid controls, indexing, syntax highlighting, 1C metadata badges, regex/context/streaming controls
+- **Hybrid search** - Semantic + keyword with fusion (RRF / weighted)
+- **Advanced search** - Regex over keyword-indexed text, configurable context lines, REST `POST /api/v1/search/stream` (SSE) via API Gateway
 
 ### 🔄 Version 1.2.0 - In Progress
-- WebSocket API for real-time updates
-- Basic web interface
-- Hybrid search (semantic + keyword)
 - Enhanced authentication (JWT, API keys)
+- Broader scale-out and integrations (see [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md))
 
 ### 📅 Future Plans
 - Support for 1M+ files in collections

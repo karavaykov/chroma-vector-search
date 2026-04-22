@@ -846,10 +846,35 @@ class ChromaSimpleServer:
         logger.info(f"Total indexed {total_indexed} code chunks from {total_files} files")
         return total_indexed
     
+    def close(self) -> None:
+        """Release Chroma persistent client and model to avoid SQLite locks (notably on Windows in tests)."""
+        self.collection = None
+        if getattr(self, "chroma_client", None) is not None:
+            try:
+                self.chroma_client.close()
+            except Exception:
+                pass
+            self.chroma_client = None
+        self.embedding_model = None
+    
     def _process_file(self, file_path: str) -> List[CodeChunk]:
         """Process a single file into code chunks"""
         path = Path(file_path)
-        relative_path = path.relative_to(self.project_root)
+        try:
+            relative_path = path.resolve().relative_to(self.project_root.resolve())
+        except ValueError:
+            # Windows: tempfile may use 8.3 short path while project_root is expanded (or vice versa)
+            file_rp = os.path.realpath(file_path)
+            root_rp = os.path.realpath(str(self.project_root))
+            norm_f = os.path.normcase(file_rp)
+            norm_r = os.path.normcase(root_rp)
+            if not (norm_f == norm_r or norm_f.startswith(norm_r + os.sep)):
+                raise ValueError(
+                    f"{file_path!r} is not inside project root {self.project_root!r}"
+                ) from None
+            relative_path = Path(os.path.relpath(file_rp, root_rp))
+            path = Path(file_rp)
+            file_path = file_rp
         
         # Determine language from extension
         ext = path.suffix.lower()

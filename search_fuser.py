@@ -26,6 +26,7 @@ class SearchResult:
         return {
             "chunk_id": self.chunk_id,
             "similarity_score": self.score,  # Используем similarity_score для совместимости
+            "score": self.score,
             "content": self.content,
             "metadata": self.metadata,
             "search_type": self.search_type

@@ -69,7 +69,7 @@ gantt
     section v1.1.0: Расширенный поиск
     GPU, WebSocket, Гибридный    :done, 2026-06-12, 14d
     Базовый веб-интерфейс        :done, 2026-06-26, 14d
-    Regex и контекстный поиск    :active, 2026-07-10, 14d
+    Regex и контекстный поиск    :done, 2026-07-10, 14d
     Релиз v1.1.0                 :milestone, 2026-07-24, 0d
     section v1.2.0: Масштабирование
     Шардирование коллекций       :2026-07-24, 30d
@@ -102,7 +102,7 @@ gantt
 - **KPI:** +40-50% точность поиска для 1С кода ✅
 - **Ответственный агент:** `bsl_specialist`
 - **Коммит:** `8d0bf70` - Phase 2: Enterprise metadata and 1C/BSL support
-- **Примечание:** Требуется запуск и верификация тестов в настроенном Python-окружении (см. `test_1c_parser.py`).
+- **Примечание:** `pytest tests/` и `python test_1c_parser.py` проходят в настроенном окружении (проверено 22 апреля 2026); на Windows после тестов вызывается `ChromaSimpleServer.close()` для снятия блокировок SQLite.
 
 ### Milestone 3: Микросервисная архитектура ✅ ВЫПОЛНЕНО (20 апреля 2026)
 - [x] Indexing Service (индексация) - `services/indexing_service/`
@@ -359,13 +359,15 @@ open https://github.com/karavaykov/chroma-vector-search/issues/new
 - **Оптимизация памяти** - уменьшение использования памяти, streaming обработка
 - **Предварительная загрузка моделей** - warm-up при старте сервера
 - **Гибридный поиск** - семантический + keyword search с TF-IDF и RRF
-- **WebSocket API** - real-time статус индексации и bidirectional communication
-- **Базовый веб-интерфейс** - UI для поиска, индексации и мониторинга
+- **WebSocket API** - real-time статус индексации и bidirectional communication; потоковая выдача поиска (`search_result_chunk` / `search_complete`)
+- **Базовый веб-интерфейс** - UI для поиска, индексации и мониторинга; переключатели regex, контекста и стриминга
+- **Поиск по regex** - по in-memory документам keyword-индекса (`regex_search`)
+- **Контекст вокруг совпадений** - `context_lines` / `context_before` / `context_after` для всех типов поиска в монолите и WebSocket
+- **REST streaming (SSE)** - `POST /search/stream` в Search Service и `POST /api/v1/search/stream` в API Gateway
 
 #### 🎯 Основные цели (в работе):
-- Поиск по регулярным выражениям (интеграция regex)
-- Контекстный поиск с учетом окружающего кода
-- Streaming результаты (постепенная отдача)
+- Полировка и регрессионное тестирование перед тегом релиза v1.1.0
+- Документация API для advanced search (синхронизация с `docs/WEBSOCKET_API.md` при необходимости)
 
 ### 📅 Версия 1.2.0 (Следующие 6 месяцев)
 
@@ -418,9 +420,9 @@ open https://github.com/karavaykov/chroma-vector-search/issues/new
 
 ---
 
-**Статус:** 🎉 Релиз v1.0.0 | 🚀 Активная разработка v1.1.0  
-**Последнее обновление:** 22 апреля 2026 (объединен план будущего развития)  
-**Следующее обновление:** 20 июля 2026 (релиз v1.1.0)
+**Статус:** 🎉 Релиз v1.0.0 | 🚀 Функции v1.1.0 (regex, контекст, streaming) реализованы; остаётся релизный тег и финальная проверка  
+**Последнее обновление:** 22 апреля 2026 (тесты: `pytest tests/` — 58 passed; `python test_1c_parser.py` — OK)  
+**Следующее обновление:** 20 июля 2026 (плановый релиз v1.1.0)
 
 ## 📚 Ссылки
 

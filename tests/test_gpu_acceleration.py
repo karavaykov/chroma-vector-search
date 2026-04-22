@@ -65,6 +65,7 @@ class TestGPUAcceleration(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
         self.test_dir = tempfile.mkdtemp()
+        self._servers = []
         
         # Create a test Python file
         self.test_file = os.path.join(self.test_dir, "test.py")
@@ -81,15 +82,24 @@ class TestClass:
     def get_value(self):
         return self.value
 """)
-    
+
+    def _track_server(self, server):
+        self._servers.append(server)
+        return server
+
     def tearDown(self):
         """Clean up test environment"""
         import shutil
-        shutil.rmtree(self.test_dir)
+        import gc
+        for s in self._servers:
+            s.close()
+        self._servers.clear()
+        gc.collect()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_server_without_gpu(self):
         """Test server initialization without GPU"""
-        server = ChromaSimpleServer(self.test_dir)
+        server = self._track_server(ChromaSimpleServer(self.test_dir))
         self.assertIsNotNone(server.embedding_model)
         self.assertEqual(server.device, "cpu")
         self.assertFalse(server.gpu_config.enabled)
@@ -97,7 +107,7 @@ class TestClass:
     def test_server_with_gpu_disabled(self):
         """Test server initialization with GPU disabled"""
         gpu_config = GPUConfig(enabled=False)
-        server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+        server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
         self.assertIsNotNone(server.embedding_model)
         self.assertEqual(server.device, "cpu")
         self.assertFalse(server.gpu_config.enabled)
@@ -107,7 +117,7 @@ class TestClass:
         try:
             import torch
             gpu_config = GPUConfig(enabled=True, device="cpu")  # Force CPU for testing
-            server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+            server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
             self.assertIsNotNone(server.embedding_model)
             self.assertTrue(server.gpu_config.enabled)
             
@@ -119,7 +129,7 @@ class TestClass:
     
     def test_encoding_without_gpu(self):
         """Test encoding without GPU acceleration"""
-        server = ChromaSimpleServer(self.test_dir)
+        server = self._track_server(ChromaSimpleServer(self.test_dir))
         
         # Test single text encoding
         text = "Test text for encoding"
@@ -140,7 +150,7 @@ class TestClass:
         try:
             import torch
             gpu_config = GPUConfig(enabled=True, device="cpu", batch_size=2)
-            server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+            server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
             
             # Test single text encoding
             text = "Test text for GPU encoding"
@@ -166,7 +176,7 @@ class TestClass:
     def test_stats_with_gpu(self):
         """Test statistics include GPU information"""
         gpu_config = GPUConfig(enabled=True, device="cpu")
-        server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+        server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
         
         stats = server.get_stats()
         self.assertIn("gpu_enabled", stats)
@@ -179,7 +189,7 @@ class TestClass:
     
     def test_stats_without_gpu(self):
         """Test statistics without GPU"""
-        server = ChromaSimpleServer(self.test_dir)
+        server = self._track_server(ChromaSimpleServer(self.test_dir))
         
         stats = server.get_stats()
         self.assertIn("gpu_enabled", stats)
@@ -188,7 +198,7 @@ class TestClass:
     def test_gpuinfo_command(self):
         """Test GPUINFO command"""
         gpu_config = GPUConfig(enabled=True, device="cpu")
-        server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+        server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
         
         response = server.handle_command("GPUINFO")
         result = json.loads(response)
@@ -204,7 +214,7 @@ class TestClass:
         try:
             import torch
             gpu_config = GPUConfig(enabled=True, device="cpu")
-            server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+            server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
             
             # Index the test file
             count = server.index_codebase(["*.py"])
@@ -223,11 +233,11 @@ class TestClass:
             import torch
             # Test with mixed precision enabled
             config1 = GPUConfig(enabled=True, device="cpu", use_mixed_precision=True)
-            server1 = ChromaSimpleServer(self.test_dir, gpu_config=config1)
+            server1 = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=config1))
             
             # Test with mixed precision disabled
             config2 = GPUConfig(enabled=True, device="cpu", use_mixed_precision=False)
-            server2 = ChromaSimpleServer(self.test_dir, gpu_config=config2)
+            server2 = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=config2))
             
             self.assertTrue(server1.gpu_config.use_mixed_precision)
             self.assertFalse(server2.gpu_config.use_mixed_precision)
@@ -242,6 +252,7 @@ class TestPerformanceComparison(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
         self.test_dir = tempfile.mkdtemp()
+        self._servers = []
         
         # Create multiple test files for performance testing
         for i in range(5):
@@ -260,11 +271,20 @@ class Class{i}:
     def process(self):
         return self.id * 100
 ''')
-    
+
+    def _track_server(self, server):
+        self._servers.append(server)
+        return server
+
     def tearDown(self):
         """Clean up test environment"""
         import shutil
-        shutil.rmtree(self.test_dir)
+        import gc
+        for s in self._servers:
+            s.close()
+        self._servers.clear()
+        gc.collect()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
     
     def test_batch_encoding_performance(self):
         """Test batch encoding performance (qualitative test)"""
@@ -277,15 +297,17 @@ class Class{i}:
             
             # Test with CPU
             cpu_config = GPUConfig(enabled=False)
-            cpu_server = ChromaSimpleServer(self.test_dir, gpu_config=cpu_config)
+            cpu_server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=cpu_config))
             
             cpu_start = time.time()
             cpu_embeddings = cpu_server.encode_with_cache(texts)
             cpu_time = time.time() - cpu_start
+            cpu_server.close()
+            self._servers.remove(cpu_server)
             
             # Test with GPU (forced to CPU for compatibility)
             gpu_config = GPUConfig(enabled=True, device="cpu", batch_size=16)
-            gpu_server = ChromaSimpleServer(self.test_dir, gpu_config=gpu_config)
+            gpu_server = self._track_server(ChromaSimpleServer(self.test_dir, gpu_config=gpu_config))
             
             gpu_start = time.time()
             gpu_embeddings = gpu_server.encode_with_cache(texts)

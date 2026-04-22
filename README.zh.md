@@ -17,6 +17,7 @@ Chroma Vector Search 是一个语义代码搜索工具，通过简单的 TCP 协
 - **完整文档** - API、部署、使用示例
 - **测试和 CI/CD** - 通过 GitHub Actions 自动测试
 - **GPU 加速** - 支持 CUDA 和 MPS 用于快速嵌入生成（2.6x-14.7x 加速）
+- **高级搜索 (v1.1.0)** - 对已索引文本的正则搜索、命中周围的上下文行、流式结果（WebSocket 与 REST SSE）
 
 ## 🚀 快速开始
 
@@ -101,12 +102,18 @@ Web UI 由 API Gateway 微服务自动提供：
 - **语法高亮：** 代码结果显示正确的语法高亮。
 - **元数据徽章：** 直接在结果中查看 1C/BSL 企业元数据（作者、模块类型、函数调用）。
 
+### 高级搜索 (v1.1.0)
+- **正则搜索：** 在关键字索引的内存文档上按模式匹配（请先完成代码库索引以填充关键字索引）。
+- **命中上下文：** 对语义、关键字、混合与正则搜索使用 `context_lines` 或 `context_before` / `context_after`（单体 `chroma_simple_server.py` 与 WebSocket API）。
+- **流式输出：** 在 Web UI 中启用流式；WebSocket 在 `search` 消息中设置 `stream: true`，处理 `search_result_chunk` 与结束的 `search_complete`。微服务场景下，API Gateway 的 `POST /api/v1/search/stream`（SSE）转发到 Search Service。
+
 ## 🌐 WebSocket API (v1.1.0 新功能)
 
 支持 WebSocket 的实时双向通信：
 
 ### WebSocket 特性
 - **实时搜索结果**：即时响应流
+- **按条流式结果 (v1.1.0)：** 当 `data.stream` 为 true 时，服务器发送 `search_result_chunk` 并以 `search_complete` 结束（除了一次性 `search_results`）。
 - **进度更新**：实时索引进度
 - **事件订阅**：订阅服务器事件
 - **双向通信**：服务器可以推送更新
@@ -193,12 +200,17 @@ PING                   # 连接测试
 
 ```bash
 # 运行所有测试
-pytest tests/
+pytest tests/ -q
+
+# 1C/BSL 解析与分块
+python test_1c_parser.py
 
 # 测试单个模块
 pytest tests/test_basic.py
 pytest tests/test_client.py
 ```
+
+在 Windows 上，测试会调用 `ChromaSimpleServer.close()`，以便在删除临时目录前释放 Chroma 的 SQLite 文件。若你在自己的脚本中使用该服务器，用完后也请调用 `close()`。
 
 ## 🤝 贡献
 
