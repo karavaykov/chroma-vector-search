@@ -80,6 +80,49 @@ python chroma_client.py search "错误处理函数"
 查找数据库操作相关的类
 ```
 
+## 🌐 Web 界面 (v1.1.0 新功能)
+
+Chroma Vector Search 现在包含一个内置的 Web UI，以便于交互。
+
+### 启动 Web UI
+Web UI 由 API Gateway 微服务自动提供：
+```bash
+# 启动微服务（包括 API Gateway）
+./start_microservices.sh
+
+# 打开浏览器并访问：
+# http://localhost:8000/
+```
+
+### 功能特点
+- **搜索：** 直接从浏览器执行语义搜索、关键字搜索或混合搜索。
+- **混合控制：** 使用滑块调整语义与关键字的权重。
+- **索引：** 触发代码库索引，并通过 WebSocket 实时查看进度。
+- **语法高亮：** 代码结果显示正确的语法高亮。
+- **元数据徽章：** 直接在结果中查看 1C/BSL 企业元数据（作者、模块类型、函数调用）。
+
+## 🌐 WebSocket API (v1.1.0 新功能)
+
+支持 WebSocket 的实时双向通信：
+
+### WebSocket 特性
+- **实时搜索结果**：即时响应流
+- **进度更新**：实时索引进度
+- **事件订阅**：订阅服务器事件
+- **双向通信**：服务器可以推送更新
+- **低延迟**：与 HTTP/TCP 请求相比
+
+### WebSocket 快速入门
+```bash
+# 启动带有 WebSocket 的服务器（默认端口 8766）
+python chroma_simple_server.py --server --websocket-port 8766
+
+# 测试 WebSocket 连接
+python test_websocket.py
+```
+
+有关完整的 API 文档，请参阅 [docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md)。
+
 ## 🚀 GPU 加速（v1.1.0 新功能）
 
 通过 NVIDIA CUDA 和 Apple Silicon MPS 的 GPU 支持加速嵌入生成：
