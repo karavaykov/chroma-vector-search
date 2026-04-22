@@ -32,6 +32,7 @@
                         <option value="hybrid">Hybrid (Semantic + Keyword)</option>
                         <option value="semantic">Semantic Only</option>
                         <option value="keyword">Keyword Only</option>
+                        <option value="regex">Regex Search</option>
                     </select>
                 </div>
                 
@@ -48,6 +49,18 @@
                 <div class="form-group">
                     <label for="n-results">Results Count</label>
                     <input type="number" id="n-results" min="1" max="50" value="10">
+                </div>
+
+                <div class="form-group">
+                    <label for="context-lines">Context Lines: <span id="context-lines-val">0</span></label>
+                    <input type="range" id="context-lines" min="0" max="10" step="1" value="0">
+                </div>
+                
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="stream-results" checked>
+                        Stream Results
+                    </label>
                 </div>
             </section>
 
@@ -119,7 +132,11 @@
                     <span class="lines-info"></span>
                     <button class="btn-copy">Copy</button>
                 </div>
-                <pre><code class="language-1c_bsl"></code></pre>
+                <div class="code-content-wrapper">
+                    <pre class="context context-before hidden"><code class="language-1c_bsl"></code></pre>
+                    <pre class="main-content"><code class="language-1c_bsl"></code></pre>
+                    <pre class="context context-after hidden"><code class="language-1c_bsl"></code></pre>
+                </div>
             </div>
         </div>
     </template>

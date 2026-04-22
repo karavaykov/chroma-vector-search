@@ -12,7 +12,7 @@ from datetime import datetime
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -189,6 +189,31 @@ async def search(
     return await gateway.forward_to_service(
         "search", "search", "POST", request.dict()
     )
+
+@app.post("/api/v1/search/stream")
+async def search_stream(
+    request: SearchRequest,
+    gateway: APIGateway = Depends(get_gateway),
+    _: None = Depends(rate_limit)
+):
+    """Search endpoint with streaming results"""
+    url = f"{SERVICE_URLS['search']}/search/stream"
+    
+    async def stream_generator():
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                async with client.stream("POST", url, json=request.dict()) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_text():
+                        yield chunk
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Service error (search): {e.response.status_code} - {e.response.text}")
+            yield f"event: error\ndata: {json.dumps({'error': e.response.text})}\n\n"
+        except httpx.RequestError as e:
+            logger.error(f"Service connection error (search): {e}")
+            yield f"event: error\ndata: {json.dumps({'error': 'Search service unavailable'})}\n\n"
+            
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 @app.post("/api/v1/index")
 async def index(

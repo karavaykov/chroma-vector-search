@@ -7,7 +7,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const keywordWeight = document.getElementById('keyword-weight');
     const semanticWeightVal = document.getElementById('semantic-weight-val');
     const keywordWeightVal = document.getElementById('keyword-weight-val');
-    const nResults = document.getElementById('n-results');
+    const contextLines = document.getElementById('context-lines');
+    const contextLinesVal = document.getElementById('context-lines-val');
+    const streamResults = document.getElementById('stream-results');
     
     const projectRoot = document.getElementById('project-root');
     const indexBtn = document.getElementById('btn-index');
@@ -49,6 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Indexing
         indexBtn.addEventListener('click', startIndexing);
+
+        contextLines.addEventListener('input', (e) => {
+            contextLinesVal.textContent = e.target.value;
+        });
 
         // Hybrid Settings
         searchType.addEventListener('change', (e) => {
@@ -106,6 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    let currentSearchId = null;
+    let streamResultsList = [];
+
     function handleWebSocketMessage(message) {
         switch (message.type) {
             case 'stats':
@@ -117,9 +126,43 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'search_results':
                 renderResults(message.data);
                 break;
+            case 'search_result_chunk':
+                handleSearchResultChunk(message.data);
+                break;
+            case 'search_complete':
+                handleSearchComplete(message.data);
+                break;
             case 'error':
                 showError(message.error);
                 break;
+        }
+    }
+
+    function handleSearchResultChunk(data) {
+        if (data.index === 0) {
+            resultsContainer.innerHTML = '';
+            streamResultsList = [];
+        }
+        
+        streamResultsList.push(data.result);
+        
+        // Render just this one result
+        const fakeData = {
+            results: [data.result],
+            time_taken_seconds: 0
+        };
+        renderResults(fakeData, true); // append = true
+    }
+    
+    function handleSearchComplete(data) {
+        searchBtn.disabled = false;
+        searchBtn.textContent = 'Search';
+        
+        resultCount.textContent = data.total_results;
+        searchStats.classList.remove('hidden');
+        
+        if (data.total_results === 0) {
+            resultsContainer.innerHTML = '<div class="empty-state"><p>No results found</p></div>';
         }
     }
 
@@ -136,7 +179,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             query: query,
             n_results: parseInt(nResults.value) || 10,
-            search_type: searchType.value
+            search_type: searchType.value,
+            context_lines: parseInt(contextLines.value) || 0,
+            stream: streamResults.checked
         };
 
         if (searchType.value === 'hybrid') {
@@ -147,21 +192,68 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // Try WebSocket first if connected
             if (ws && ws.readyState === WebSocket.OPEN) {
+                currentSearchId = 'req_' + Date.now();
                 ws.send(JSON.stringify({
                     type: 'search',
+                    id: currentSearchId,
                     data: payload
                 }));
             } else {
                 // Fallback to REST API
-                const response = await fetch(`${API_URL}/api/v1/search`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const data = await response.json();
-                renderResults(data);
+                if (payload.stream) {
+                    const response = await fetch(`${API_URL}/api/v1/search/stream`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    
+                    resultsContainer.innerHTML = '';
+                    streamResultsList = [];
+                    let totalResults = 0;
+                    
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        
+                        const chunk = decoder.decode(value, { stream: true });
+                        const lines = chunk.split('\n\n');
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.substring(6));
+                                    if (data.result) {
+                                        streamResultsList.push(data.result);
+                                        renderResults({ results: [data.result], time_taken_seconds: 0 }, true);
+                                    } else if (data.total_results !== undefined) {
+                                        totalResults = data.total_results;
+                                    }
+                                } catch(e) {}
+                            } else if (line.startsWith('event: complete')) {
+                                // Handled by data block usually
+                            } else if (line.startsWith('event: error')) {
+                                // Extract error
+                            }
+                        }
+                    }
+                    
+                    handleSearchComplete({ total_results: streamResultsList.length });
+                } else {
+                    const response = await fetch(`${API_URL}/api/v1/search`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    renderResults(data);
+                }
             }
         } catch (error) {
             showError(`Search failed: ${error.message}`);
@@ -245,33 +337,52 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function renderResults(data) {
-        searchBtn.disabled = false;
-        searchBtn.textContent = 'Search';
-        
-        resultsContainer.innerHTML = '';
+    function renderResults(data, append = false) {
+        if (!append) {
+            searchBtn.disabled = false;
+            searchBtn.textContent = 'Search';
+            resultsContainer.innerHTML = '';
+        }
         
         if (!data.results || data.results.length === 0) {
-            resultsContainer.innerHTML = '<div class="empty-state"><p>No results found</p></div>';
-            searchStats.classList.add('hidden');
+            if (!append) {
+                resultsContainer.innerHTML = '<div class="empty-state"><p>No results found</p></div>';
+                searchStats.classList.add('hidden');
+            }
             return;
         }
 
         // Update stats
-        resultCount.textContent = data.results.length;
-        searchTime.textContent = (data.time_taken_seconds * 1000).toFixed(0);
-        searchStats.classList.remove('hidden');
+        if (!append) {
+            resultCount.textContent = data.results.length;
+            searchTime.textContent = (data.time_taken_seconds * 1000).toFixed(0);
+            searchStats.classList.remove('hidden');
+        }
 
         data.results.forEach(result => {
             const clone = resultTemplate.content.cloneNode(true);
             
             // File path and score
             clone.querySelector('.file-path').textContent = result.file_path;
-            clone.querySelector('.result-score').textContent = `Score: ${result.score.toFixed(3)}`;
+            clone.querySelector('.result-score').textContent = `Score: ${result.similarity_score ? result.similarity_score.toFixed(3) : (result.score ? result.score.toFixed(3) : 0)}`;
             
             // Code content
-            const codeBlock = clone.querySelector('code');
-            codeBlock.textContent = result.content;
+            const mainContent = clone.querySelector('.main-content code');
+            mainContent.textContent = result.content;
+            
+            // Context lines
+            const contextBefore = clone.querySelector('.context-before');
+            const contextAfter = clone.querySelector('.context-after');
+            
+            if (result.context_before) {
+                contextBefore.querySelector('code').textContent = result.context_before;
+                contextBefore.classList.remove('hidden');
+            }
+            
+            if (result.context_after) {
+                contextAfter.querySelector('code').textContent = result.context_after;
+                contextAfter.classList.remove('hidden');
+            }
             
             // Lines info
             if (result.line_start && result.line_end) {

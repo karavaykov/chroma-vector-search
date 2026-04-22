@@ -922,7 +922,42 @@ class ChromaSimpleServer:
         
         return chunks
     
-    def semantic_search(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+    def _add_context_to_results(self, results: List[Dict[str, Any]], context_lines: int) -> List[Dict[str, Any]]:
+        """Add surrounding context lines to search results"""
+        if context_lines <= 0 or not results:
+            return results
+            
+        for result in results:
+            file_path = result.get("file_path")
+            line_start = result.get("line_start")
+            line_end = result.get("line_end")
+            
+            if not file_path or not line_start or not line_end:
+                continue
+                
+            abs_path = self.project_root / file_path
+            if not abs_path.exists() or not abs_path.is_file():
+                continue
+                
+            try:
+                with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    
+                # 0-based indexing
+                start_idx = max(0, line_start - 1 - context_lines)
+                end_idx = min(len(lines), line_end + context_lines)
+                
+                context_before = lines[start_idx:line_start - 1]
+                context_after = lines[line_end:end_idx]
+                
+                result["context_before"] = "".join(context_before)
+                result["context_after"] = "".join(context_after)
+            except Exception as e:
+                logger.warning(f"Could not read context for {file_path}: {e}")
+                
+        return results
+
+    def semantic_search(self, query: str, n_results: int = 5, context_lines: int = 0) -> List[Dict[str, Any]]:
         """Perform semantic search on indexed codebase"""
         if not self.embedding_model or not self.collection:
             raise RuntimeError("Server not properly initialized")
@@ -956,9 +991,9 @@ class ChromaSimpleServer:
                     "chunk_id": results['ids'][0][i] if results['ids'] else f"result_{i}"
                 })
         
-        return formatted_results
+        return self._add_context_to_results(formatted_results, context_lines)
     
-    def keyword_search(self, query: str, n_results: int = 10) -> List[Dict[str, Any]]:
+    def keyword_search(self, query: str, n_results: int = 10, context_lines: int = 0) -> List[Dict[str, Any]]:
         """Perform keyword search on indexed codebase"""
         if not self.keyword_index or not HYBRID_SEARCH_AVAILABLE:
             logger.warning("Keyword search not available. Returning empty results.")
@@ -984,12 +1019,54 @@ class ChromaSimpleServer:
                 })
             
             logger.debug(f"Keyword search returned {len(formatted_results)} results")
-            return formatted_results[:n_results]  # Return requested number of results
+            return self._add_context_to_results(formatted_results[:n_results], context_lines)  # Return requested number of results
             
         except Exception as e:
             logger.error(f"Keyword search failed: {e}")
             return []
     
+    def regex_search(self, pattern: str, n_results: int = 10, context_lines: int = 0) -> List[Dict[str, Any]]:
+        """Perform regex search using the keyword index documents"""
+        if not self.keyword_index or not HYBRID_SEARCH_AVAILABLE:
+            logger.warning("Regex search requires keyword index to be available.")
+            return []
+            
+        import re
+        try:
+            regex = re.compile(pattern)
+        except re.error as e:
+            logger.error(f"Invalid regex pattern '{pattern}': {e}")
+            return []
+            
+        results = []
+        for chunk_id, doc in self.keyword_index.documents.items():
+            content = doc.get("content", "")
+            matches = list(regex.finditer(content))
+            if matches:
+                # Use number of matches as a simple score
+                score = float(len(matches))
+                results.append({
+                    "rank": 0,  # Will be updated after sorting
+                    "content": content,
+                    "file_path": doc.get("metadata", {}).get("file_path", ""),
+                    "line_start": doc.get("metadata", {}).get("line_start", 0),
+                    "line_end": doc.get("metadata", {}).get("line_end", 0),
+                    "language": doc.get("metadata", {}).get("language", "unknown"),
+                    "similarity_score": score,
+                    "chunk_id": chunk_id,
+                    "search_type": "regex"
+                })
+                
+        # Sort by score descending
+        results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        
+        # Update rank
+        for i, res in enumerate(results):
+            res["rank"] = i + 1
+            
+        logger.debug(f"Regex search returned {len(results)} results")
+        return self._add_context_to_results(results[:n_results], context_lines)
+
     def hybrid_search(
         self, 
         query: str, 
@@ -997,7 +1074,8 @@ class ChromaSimpleServer:
         semantic_weight: float = 0.7,
         keyword_weight: float = 0.3,
         fusion_method: str = 'weighted',
-        search_type: str = 'hybrid'
+        search_type: str = 'hybrid',
+        context_lines: int = 0
     ) -> List[Dict[str, Any]]:
         """Perform hybrid search combining semantic and keyword search"""
         
@@ -1062,12 +1140,12 @@ class ChromaSimpleServer:
             logger.info(f"Hybrid search: {len(semantic_results)} semantic + "
                        f"{len(keyword_results)} keyword → {len(fused_results)} fused results")
             
-            return fused_results
+            return self._add_context_to_results(fused_results, context_lines)
             
         except Exception as e:
             logger.error(f"Hybrid search fusion failed: {e}")
             # Fallback: return semantic results
-            return semantic_results[:n_results]
+            return self._add_context_to_results(semantic_results[:n_results], context_lines)
     
     def get_stats(self) -> Dict[str, Any]:
         """Get server statistics"""

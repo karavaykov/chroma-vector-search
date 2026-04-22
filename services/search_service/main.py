@@ -7,13 +7,16 @@ Handles semantic search queries
 import os
 import json
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import redis
 
@@ -288,6 +291,34 @@ search_service = SearchService()
 async def search(request: SearchRequest):
     """Perform semantic search"""
     return search_service.search(request)
+
+@app.post("/search/stream")
+async def search_stream(request: SearchRequest):
+    """Perform semantic search and stream results"""
+    async def generate():
+        try:
+            # Perform search synchronously but yield results incrementally
+            # In a real async DB client, this would be an async cursor
+            response = search_service.search(request)
+            for i, result in enumerate(response.results):
+                chunk_data = {
+                    "index": i,
+                    "result": result.dict(),
+                    "is_last": i == len(response.results) - 1
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n"
+                await asyncio.sleep(0.01)  # small delay to simulate streaming
+                
+            complete_data = {
+                "total_results": response.total_results,
+                "query": response.query
+            }
+            yield f"event: complete\ndata: {json.dumps(complete_data)}\n\n"
+        except Exception as e:
+            error_data = {"error": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+            
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.post("/search/similar", response_model=SearchResponse)
 async def search_similar(request: SimilarRequest):

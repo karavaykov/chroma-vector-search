@@ -28,6 +28,8 @@ class MessageType(Enum):
     
     # Response types
     SEARCH_RESULTS = "search_results"
+    SEARCH_RESULT_CHUNK = "search_result_chunk"
+    SEARCH_COMPLETE = "search_complete"
     INDEX_PROGRESS = "index_progress"
     INDEX_COMPLETE = "index_complete"
     STATS_UPDATE = "stats_update"
@@ -189,6 +191,9 @@ class WebSocketServer:
         """
         query = message.data.get("query", "")
         n_results = message.data.get("n_results", 5)
+        search_type = message.data.get("search_type", "semantic")
+        context_lines = message.data.get("context_lines", 0)
+        stream = message.data.get("stream", False)
         
         if not query:
             await self.send_error(websocket, "Search query is required")
@@ -197,22 +202,71 @@ class WebSocketServer:
         # Perform search (in thread pool to avoid blocking)
         loop = asyncio.get_event_loop()
         try:
-            results = await loop.run_in_executor(
-                None, 
-                self.chroma_server.semantic_search, 
-                query, n_results
-            )
+            # Choose search method based on search_type
+            if search_type == "regex":
+                results = await loop.run_in_executor(
+                    None,
+                    self.chroma_server.regex_search,
+                    query, n_results, context_lines
+                )
+            elif search_type == "keyword":
+                results = await loop.run_in_executor(
+                    None,
+                    self.chroma_server.keyword_search,
+                    query, n_results, context_lines
+                )
+            elif search_type == "hybrid":
+                semantic_weight = message.data.get("semantic_weight", 0.7)
+                keyword_weight = message.data.get("keyword_weight", 0.3)
+                results = await loop.run_in_executor(
+                    None,
+                    lambda: self.chroma_server.hybrid_search(
+                        query, n_results, semantic_weight, keyword_weight, 
+                        'weighted', 'hybrid', context_lines
+                    )
+                )
+            else:
+                # Default to semantic
+                results = await loop.run_in_executor(
+                    None, 
+                    self.chroma_server.semantic_search, 
+                    query, n_results, context_lines
+                )
             
-            # Send results
-            await self.send_message(websocket, WebSocketMessage(
-                type=MessageType.SEARCH_RESULTS.value,
-                id=message.id,
-                data={
-                    "results": results,
-                    "query": query,
-                    "n_results": n_results
-                }
-            ))
+            if stream:
+                # Send results as a stream
+                for i, result in enumerate(results):
+                    await self.send_message(websocket, WebSocketMessage(
+                        type=MessageType.SEARCH_RESULT_CHUNK.value,
+                        id=message.id,
+                        data={
+                            "index": i,
+                            "result": result,
+                            "is_last": i == len(results) - 1
+                        }
+                    ))
+                    # Small delay to allow UI rendering
+                    await asyncio.sleep(0.01)
+                    
+                await self.send_message(websocket, WebSocketMessage(
+                    type=MessageType.SEARCH_COMPLETE.value,
+                    id=message.id,
+                    data={
+                        "total_results": len(results),
+                        "query": query
+                    }
+                ))
+            else:
+                # Send all results at once
+                await self.send_message(websocket, WebSocketMessage(
+                    type=MessageType.SEARCH_RESULTS.value,
+                    id=message.id,
+                    data={
+                        "results": results,
+                        "query": query,
+                        "n_results": n_results
+                    }
+                ))
             
         except Exception as e:
             logger.error(f"Search error: {e}")
