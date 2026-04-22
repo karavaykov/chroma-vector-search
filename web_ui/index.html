@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chroma Vector Search</title>
+    <link rel="stylesheet" href="static/style.css">
+    <!-- Highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/1c.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Chroma Vector Search</h1>
+            <div class="status-indicator">
+                <span id="ws-status" class="status-dot offline"></span>
+                <span id="ws-status-text">Disconnected</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="sidebar">
+            <section class="panel">
+                <h2>Search Settings</h2>
+                
+                <div class="form-group">
+                    <label for="search-type">Search Type</label>
+                    <select id="search-type">
+                        <option value="hybrid">Hybrid (Semantic + Keyword)</option>
+                        <option value="semantic">Semantic Only</option>
+                        <option value="keyword">Keyword Only</option>
+                    </select>
+                </div>
+                
+                <div class="form-group hybrid-settings">
+                    <label for="semantic-weight">Semantic Weight: <span id="semantic-weight-val">0.7</span></label>
+                    <input type="range" id="semantic-weight" min="0" max="1" step="0.1" value="0.7">
+                </div>
+                
+                <div class="form-group hybrid-settings">
+                    <label for="keyword-weight">Keyword Weight: <span id="keyword-weight-val">0.3</span></label>
+                    <input type="range" id="keyword-weight" min="0" max="1" step="0.1" value="0.3">
+                </div>
+                
+                <div class="form-group">
+                    <label for="n-results">Results Count</label>
+                    <input type="number" id="n-results" min="1" max="50" value="10">
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Indexing</h2>
+                <div class="form-group">
+                    <label for="project-root">Project Root Path</label>
+                    <input type="text" id="project-root" placeholder="/path/to/project">
+                </div>
+                <button id="btn-index" class="btn primary">Start Indexing</button>
+                
+                <div id="indexing-progress" class="progress-container hidden">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div id="progress-text" class="progress-text">0%</div>
+                    <div id="progress-details" class="progress-details"></div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>System Stats</h2>
+                <div id="system-stats" class="stats-container">
+                    <div class="stat-row"><span>Device:</span> <span id="stat-device">-</span></div>
+                    <div class="stat-row"><span>Collection:</span> <span id="stat-collection">-</span></div>
+                    <div class="stat-row"><span>Documents:</span> <span id="stat-docs">-</span></div>
+                </div>
+            </section>
+        </div>
+
+        <div class="content">
+            <div class="search-container">
+                <div class="search-box">
+                    <input type="text" id="search-query" placeholder="Enter your search query... (e.g., 'how is user authentication handled?')">
+                    <button id="btn-search" class="btn primary">Search</button>
+                </div>
+            </div>
+
+            <div id="search-stats" class="search-stats hidden">
+                Found <span id="result-count">0</span> results in <span id="search-time">0</span>ms
+            </div>
+
+            <div id="results-container" class="results-container">
+                <!-- Results will be dynamically inserted here -->
+                <div class="empty-state">
+                    <p>Enter a query to search the codebase</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Template for a result item -->
+    <template id="result-template">
+        <div class="result-card">
+            <div class="result-header">
+                <div class="result-file">
+                    <span class="file-icon">📄</span>
+                    <span class="file-path"></span>
+                </div>
+                <div class="result-score"></div>
+            </div>
+            
+            <div class="result-metadata hidden">
+                <!-- Metadata badges will be inserted here -->
+            </div>
+            
+            <div class="result-code">
+                <div class="code-header">
+                    <span class="lines-info"></span>
+                    <button class="btn-copy">Copy</button>
+                </div>
+                <pre><code class="language-1c_bsl"></code></pre>
+            </div>
+        </div>
+    </template>
+
+    <script src="static/app.js"></script>
+</body>
+</html>

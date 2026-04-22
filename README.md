@@ -109,6 +109,12 @@ opencode
 - `start_chroma_mcp.sh` - Launch script
 - `install_chroma.sh` - Dependency installer
 
+### 8. **Web Interface** (`web_ui/`)
+- Interactive UI for search and indexing
+- Real-time WebSocket progress updates
+- Hybrid search controls (semantic vs keyword weights)
+- Syntax highlighting and metadata display
+
 ## 🗺️ Development Roadmap
 
 Based on enterprise testing results, we have developed a 6-week roadmap for enterprise optimization:
@@ -251,6 +257,27 @@ python chroma_client.py --stats
 # Re-index codebase (includes keyword index)
 python chroma_client.py --index --patterns "**/*.java,**/*.py"
 ```
+
+## 🌐 Web Interface (New in v1.1.0)
+
+Chroma Vector Search now includes a built-in Web UI for easier interaction.
+
+### Starting the Web UI
+The Web UI is served automatically by the API Gateway microservice:
+```bash
+# Start the microservices (including API Gateway)
+./start_microservices.sh
+
+# Open your browser and navigate to:
+# http://localhost:8000/
+```
+
+### Features
+- **Search:** Perform Semantic, Keyword, or Hybrid searches directly from the browser.
+- **Hybrid Controls:** Adjust semantic vs keyword weights using sliders.
+- **Indexing:** Trigger codebase indexing and watch real-time progress via WebSocket.
+- **Syntax Highlighting:** Code results are displayed with proper syntax highlighting.
+- **Metadata Badges:** View 1C/BSL enterprise metadata (author, module type, calls) directly in the results.
 
 ## 🌐 WebSocket API (New in v1.1.0)
 

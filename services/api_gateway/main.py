@@ -6,14 +6,16 @@ Single entry point for all microservices
 
 import json
 import logging
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import redis
 
@@ -265,8 +267,8 @@ async def health_check(gateway: APIGateway = Depends(get_gateway)):
         timestamp=datetime.now()
     )
 
-@app.get("/")
-async def root() -> Dict[str, Any]:
+@app.get("/api")
+async def api_root() -> Dict[str, Any]:
     """Root endpoint with API information"""
     return {
         "service": "Chroma Vector Search API Gateway",
@@ -286,6 +288,20 @@ async def root() -> Dict[str, Any]:
             "redoc": "/api/redoc"
         }
     }
+
+# Mount static files for Web UI
+web_ui_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "web_ui")
+if os.path.exists(web_ui_dir):
+    app.mount("/static", StaticFiles(directory=web_ui_dir), name="static")
+
+    @app.get("/")
+    async def serve_ui():
+        """Serve the Web UI index.html"""
+        return FileResponse(os.path.join(web_ui_dir, "index.html"))
+else:
+    @app.get("/")
+    async def root_redirect():
+        return {"message": "Web UI not found. API is running at /api"}
 
 if __name__ == "__main__":
     import uvicorn
