@@ -8,7 +8,7 @@ import json
 import sys
 import argparse
 import httpx
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 class ChromaRESTClient:
@@ -19,8 +19,19 @@ class ChromaRESTClient:
         self.client = httpx.Client(timeout=30.0)
     
     def search(self, query: str, n_results: int = 5, collection_name: str = "codebase_vectors", 
-               filters: Optional[Dict] = None) -> Dict[str, Any]:
-        """Perform semantic search"""
+               filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Perform a semantic search via the REST API.
+        
+        Args:
+            query (str): The search query.
+            n_results (int): The number of top results to return. Defaults to 5.
+            collection_name (str): The name of the collection. Defaults to "codebase_vectors".
+            filters (Optional[Dict[str, Any]]): Metadata filters for the search.
+            
+        Returns:
+            Dict[str, Any]: The JSON response containing search results.
+        """
         try:
             payload = {
                 "query": query,
@@ -39,9 +50,20 @@ class ChromaRESTClient:
         except Exception as e:
             return {"type": "error", "message": str(e)}
     
-    def index(self, project_root: str = ".", file_patterns: Optional[list] = None, 
+    def index(self, project_root: str = ".", file_patterns: Optional[List[str]] = None, 
               max_file_size_mb: int = 10, collection_name: str = "codebase_vectors") -> Dict[str, Any]:
-        """Index the codebase"""
+        """
+        Trigger indexing of the codebase via the REST API.
+        
+        Args:
+            project_root (str): The root directory of the project. Defaults to ".".
+            file_patterns (Optional[List[str]]): List of file patterns to index.
+            max_file_size_mb (int): Maximum file size in MB. Defaults to 10.
+            collection_name (str): The name of the collection. Defaults to "codebase_vectors".
+            
+        Returns:
+            Dict[str, Any]: The JSON response from the API.
+        """
         try:
             payload = {
                 "project_root": project_root,

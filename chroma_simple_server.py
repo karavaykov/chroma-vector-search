@@ -62,6 +62,7 @@ class EnterpriseMetadata:
     return_type: str = ""  # Return type for functions
     export: bool = False   # Is exported
     deprecated: bool = False # Is deprecated
+    calls: List[str] = None # List of functions/procedures called inside
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Chroma metadata"""
@@ -78,7 +79,8 @@ class EnterpriseMetadata:
             "parameters": json.dumps(self.parameters) if self.parameters else "",
             "return_type": self.return_type,
             "export": str(self.export),
-            "deprecated": str(self.deprecated)
+            "deprecated": str(self.deprecated),
+            "calls": json.dumps(self.calls) if self.calls else "[]"
         }
 
 @dataclass
@@ -366,48 +368,32 @@ class ChromaSimpleServer:
             first_line = lines[start_line].strip()
             first_lower = first_line.lower()
             
-            if first_lower.startswith('процедура'):
-                metadata.object_type = "Procedure"
-                # Extract procedure name
-                name_start = first_line.find('Процедура') + 9
-                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
-                metadata.object_name = first_line[name_start:name_end].strip()
-                
-            elif first_lower.startswith('функция'):
-                metadata.object_type = "Function"
-                # Extract function name
-                name_start = first_line.find('Функция') + 7
-                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
-                metadata.object_name = first_line[name_start:name_end].strip()
-                
-            elif first_lower.startswith('procedure'):
-                metadata.object_type = "Procedure"
-                name_start = first_line.find('Procedure') + 9
-                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
-                metadata.object_name = first_line[name_start:name_end].strip()
-                
-            elif first_lower.startswith('function'):
-                metadata.object_type = "Function"
-                name_start = first_line.find('Function') + 8
-                name_end = first_line.find('(', name_start) if '(' in first_line else len(first_line)
-                metadata.object_name = first_line[name_start:name_end].strip()
-        
-        # Extract parameters from first line
-        if '(' in first_line and ')' in first_line:
-            params_start = first_line.find('(') + 1
-            params_end = first_line.find(')', params_start)
-            params_str = first_line[params_start:params_end].strip()
-            if params_str:
-                metadata.parameters = [p.strip() for p in params_str.split(',')]
-        
-        # Extract return type for functions
-        if metadata.object_type == "Function" and 'возврат' in first_lower:
-            return_start = first_lower.find('возврат')
-            metadata.return_type = first_line[return_start + 7:].strip()
-        
-        # Check for export keyword (can be for both procedures and functions)
-        if 'экспорт' in first_lower or 'export' in first_lower:
-            metadata.export = True
+            import re
+            match = re.match(r'^\s*(Процедура|Procedure|Функция|Function)\s+([А-Яа-яA-Za-z_][А-Яа-яA-Za-z0-9_]*)', first_line, re.IGNORECASE)
+            if match:
+                keyword = match.group(1).lower()
+                if keyword in ('процедура', 'procedure'):
+                    metadata.object_type = "Procedure"
+                else:
+                    metadata.object_type = "Function"
+                metadata.object_name = match.group(2)
+            
+            # Extract parameters from first line
+            params_match = re.search(r'\((.*?)\)', first_line)
+            if params_match:
+                params_str = params_match.group(1).strip()
+                if params_str:
+                    metadata.parameters = [p.strip() for p in params_str.split(',')]
+            
+            # Extract return type for functions
+            if metadata.object_type == "Function":
+                return_match = re.search(r'(?i)возврат\s+([А-Яа-яA-Za-z_][А-Яа-яA-Za-z0-9_]*)', first_line)
+                if return_match:
+                    metadata.return_type = return_match.group(1)
+            
+            # Check for export keyword
+            if re.search(r'(?i)\b(экспорт|export)\b', first_line):
+                metadata.export = True
         
         # Look for comments and metadata in preceding lines
         comment_lines = []
@@ -494,59 +480,113 @@ class ChromaSimpleServer:
     def _process_1c_bsl_file(self, content: str, file_path: str) -> List[CodeChunk]:
         """Process 1C/BSL file with semantic chunking and enterprise metadata"""
         chunks = []
-        
-        # Split by procedures and functions for better semantic chunks
         lines = content.splitlines()
         
-        # Find procedure/function boundaries
+        state = "OUTSIDE"
         procedure_start = -1
         current_procedure_lines = []
+        current_calls = set()
+        
+        import re
+        re_proc_func_start = re.compile(r'^\s*(?:Процедура|Procedure|Функция|Function)\s+([А-Яа-яA-Za-z_][А-Яа-яA-Za-z0-9_]*)', re.IGNORECASE)
+        re_proc_end = re.compile(r'^\s*(?:КонецПроцедуры|EndProcedure)', re.IGNORECASE)
+        re_func_end = re.compile(r'^\s*(?:КонецФункции|EndFunction)', re.IGNORECASE)
+        re_call = re.compile(r'([А-Яа-яA-Za-z_][А-Яа-яA-Za-z0-9_]*)\s*\(', re.IGNORECASE)
+        
+        reserved_words = {
+            'если', 'if', 'пока', 'while', 'для', 'for', 'возврат', 'return',
+            'попытка', 'try', 'исключение', 'except', 'вызватьисключение', 'raise',
+            'каждого', 'each', 'из', 'in', 'новый', 'new', 'строка', 'string',
+            'число', 'number', 'булево', 'boolean', 'дата', 'date',
+            'и', 'and', 'или', 'or', 'не', 'not', 'истина', 'true', 'ложь', 'false',
+            'неопределено', 'undefined', 'null', 'тип', 'type', 'типзнч', 'typeof',
+            'формат', 'format', 'нстр', 'nstr', 'значениезаполнено', 'valueisfilled',
+            'сообщить', 'message', 'прервать', 'break', 'продолжить', 'continue',
+            'выполнить', 'execute', 'описаниеошибки', 'errorinfo', 'текущаядата', 'currentdate',
+            'массив', 'array', 'структура', 'structure', 'соответствие', 'fixedstructure',
+            'списокзначений', 'valuelist', 'таблицазначений', 'valuetable',
+            'деревозначений', 'valuetree', 'запрос', 'query', 'результатзапроса', 'queryresult',
+            'выборкаизрезультатазапроса', 'queryresultselection',
+            'уникальныйидентификатор', 'uuid', 'guid', 'прав', 'right', 'лев', 'left',
+            'сред', 'mid', 'стрзаменить', 'strreplace', 'стрчисловхождений', 'stroccurrencecount',
+            'стрнайти', 'strfind', 'стрлиначинаетсяс', 'startswith', 'стрлизаканчиваетсяна', 'endswith',
+            'стрразделить', 'strsplit', 'стрсоединить', 'strjoin', 'пустаястрока', 'isblankstring',
+            'мин', 'min', 'макс', 'max', 'цел', 'int', 'окр', 'round', 'log', 'log10', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan',
+            'exp', 'pow', 'sqrt', 'текущаясеансоваядата', 'currentsessiondate',
+            'добавитьмесяц', 'addmonth', 'конецгода', 'endofyear', 'конецквартала', 'endofquarter',
+            'конецмесяца', 'endofmonth', 'конецнедели', 'endofweek', 'конецдня', 'endofday',
+            'конецчаса', 'endofhour', 'конецминуты', 'endofminute', 'началогода', 'begofyear',
+            'началоквартала', 'begofquarter', 'началомесяца', 'begofmonth', 'началонедели', 'begofweek',
+            'началодня', 'begofday', 'началочаса', 'begofhour', 'началоминуты', 'begofminute',
+            'деньгода', 'dayofyear', 'деньнедели', 'dayofweek', 'месяц', 'month', 'квартал', 'quarter',
+            'год', 'year', 'день', 'day', 'час', 'hour', 'минута', 'minute', 'секунда', 'second'
+        }
+        
+        in_string = False
         
         for i, line in enumerate(lines):
             stripped = line.strip()
             
-            # Check for procedure/function start
-            if stripped.lower().startswith(('процедура', 'функция', 'procedure', 'function')):
-                # Save previous procedure if exists
-                if current_procedure_lines and procedure_start >= 0:
-                    chunk_content = '\n'.join(current_procedure_lines).strip()
-                    if len(chunk_content) >= 20:
-                        # Extract metadata
-                        metadata = self._extract_1c_metadata(
-                            lines, procedure_start, 
-                            procedure_start + len(current_procedure_lines) - 1,
-                            file_path
-                        )
-                        
-                        chunk = CodeChunk(
-                            content=chunk_content,
-                            file_path=file_path,
-                            line_start=procedure_start + 1,
-                            line_end=procedure_start + len(current_procedure_lines),
-                            language='1c_bsl',
-                            chunk_id=self._generate_chunk_id(file_path, procedure_start + 1),
-                            enterprise_metadata=metadata
-                        )
-                        chunks.append(chunk)
-                
-                # Start new procedure
-                procedure_start = i
-                current_procedure_lines = [line]
-            elif current_procedure_lines:
-                # Continue current procedure
+            clean_line = ""
+            j = 0
+            while j < len(line):
+                char = line[j]
+                if in_string:
+                    if char == '"':
+                        if j + 1 < len(line) and line[j+1] == '"':
+                            j += 1
+                        else:
+                            in_string = False
+                else:
+                    if char == '"':
+                        in_string = True
+                    elif char == '/' and j + 1 < len(line) and line[j+1] == '/':
+                        break
+                    else:
+                        clean_line += char
+                j += 1
+            
+            if stripped.startswith('|'):
+                in_string = True
+                clean_line = ""
+            
+            if state == "OUTSIDE":
+                match = re_proc_func_start.match(clean_line)
+                if match:
+                    is_proc = clean_line.lstrip().lower().startswith(('процедура', 'procedure'))
+                    state = "IN_PROCEDURE" if is_proc else "IN_FUNCTION"
+                    procedure_start = i
+                    current_procedure_lines = [line]
+                    current_calls = set()
+                    
+                    for call_match in re_call.finditer(clean_line):
+                        call_name = call_match.group(1)
+                        if call_name.lower() not in reserved_words and call_name.lower() != match.group(1).lower():
+                            current_calls.add(call_name)
+            
+            elif state in ("IN_PROCEDURE", "IN_FUNCTION"):
                 current_procedure_lines.append(line)
                 
-                # Check for end of procedure (КонецПроцедуры, КонецФункции, EndProcedure, EndFunction)
-                if stripped.lower() in ('конецпроцедуры', 'конецфункции', 'endprocedure', 'endfunction'):
-                    # Save completed procedure
+                for call_match in re_call.finditer(clean_line):
+                    call_name = call_match.group(1)
+                    if call_name.lower() not in reserved_words:
+                        current_calls.add(call_name)
+                
+                is_end = False
+                if state == "IN_PROCEDURE" and re_proc_end.match(clean_line):
+                    is_end = True
+                elif state == "IN_FUNCTION" and re_func_end.match(clean_line):
+                    is_end = True
+                    
+                if is_end:
                     chunk_content = '\n'.join(current_procedure_lines).strip()
                     if len(chunk_content) >= 20:
-                        # Extract metadata
                         metadata = self._extract_1c_metadata(
                             lines, procedure_start,
                             procedure_start + len(current_procedure_lines) - 1,
                             file_path
                         )
+                        metadata.calls = list(current_calls)
                         
                         chunk = CodeChunk(
                             content=chunk_content,
@@ -559,20 +599,20 @@ class ChromaSimpleServer:
                         )
                         chunks.append(chunk)
                     
-                    # Reset for next procedure
+                    state = "OUTSIDE"
                     procedure_start = -1
                     current_procedure_lines = []
+                    current_calls = set()
         
-        # Save last procedure if exists
-        if current_procedure_lines and procedure_start >= 0:
+        if state in ("IN_PROCEDURE", "IN_FUNCTION") and current_procedure_lines and procedure_start >= 0:
             chunk_content = '\n'.join(current_procedure_lines).strip()
             if len(chunk_content) >= 20:
-                # Extract metadata
                 metadata = self._extract_1c_metadata(
                     lines, procedure_start,
                     procedure_start + len(current_procedure_lines) - 1,
                     file_path
                 )
+                metadata.calls = list(current_calls)
                 
                 chunk = CodeChunk(
                     content=chunk_content,
@@ -585,7 +625,6 @@ class ChromaSimpleServer:
                 )
                 chunks.append(chunk)
         
-        # If no procedures found, fall back to line-based chunking
         if not chunks:
             chunk_size = 15
             overlap = 3
@@ -599,7 +638,6 @@ class ChromaSimpleServer:
                 if not chunk_content or len(chunk_content) < 20:
                     continue
                 
-                # Extract basic metadata for non-procedure chunks
                 metadata = EnterpriseMetadata()
                 metadata.object_type = "CodeBlock"
                 metadata.module_type = self._detect_module_type_from_path(file_path)
@@ -1069,7 +1107,15 @@ class ChromaSimpleServer:
         return stats
     
     def handle_command(self, command: str) -> str:
-        """Handle a command from client"""
+        """
+        Handle a command from client.
+        
+        Args:
+            command (str): The raw command string received from the client.
+            
+        Returns:
+            str: JSON-formatted response string.
+        """
         try:
             parts = command.strip().split("|", 1)
             cmd = parts[0].upper()
@@ -1189,7 +1235,7 @@ class ChromaSimpleServer:
                 "message": str(e)
             })
     
-    def start_server(self):
+    def start_server(self) -> None:
         """Start the TCP server and WebSocket server"""
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1248,7 +1294,7 @@ class ChromaSimpleServer:
         finally:
             self.stop_server()
     
-    def stop_server(self):
+    def stop_server(self) -> None:
         """Stop the server"""
         self.running = False
         
@@ -1264,8 +1310,13 @@ class ChromaSimpleServer:
         
         logger.info("Chroma server stopped")
 
-def run_standalone(args):
-    """Run in standalone mode (CLI)"""
+def run_standalone(args: argparse.Namespace) -> None:
+    """
+    Run in standalone mode (CLI).
+    
+    Args:
+        args (argparse.Namespace): Parsed command-line arguments.
+    """
     # Create GPU configuration if enabled
     gpu_config = None
     if args.gpu:
@@ -1368,7 +1419,7 @@ def run_standalone(args):
         print("  --port N         Server port (default: 8765)")
         print("  --project-root   Project root directory (default: .)")
 
-def main():
+def main() -> None:
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Chroma Code Search Server")
     parser.add_argument("--index", action="store_true", help="Index the codebase")

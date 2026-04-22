@@ -99,8 +99,14 @@ class WebSocketServer:
         self.stats_interval = 30.0  # seconds
         self.stats_task = None
         
-    async def handle_client(self, websocket, path):
-        """Handle a WebSocket client connection"""
+    async def handle_client(self, websocket: Any, path: str) -> None:
+        """
+        Handle a WebSocket client connection.
+        
+        Args:
+            websocket: The WebSocket connection object.
+            path (str): The requested path.
+        """
         client_id = str(uuid.uuid4())
         self.clients[client_id] = websocket
         
@@ -135,8 +141,14 @@ class WebSocketServer:
                 del self.subscriptions[client_id]
             logger.info(f"WebSocket client disconnected: {client_id}")
     
-    async def handle_message(self, client_id: str, message: str):
-        """Handle incoming WebSocket message"""
+    async def handle_message(self, client_id: str, message: str) -> None:
+        """
+        Handle an incoming WebSocket message.
+        
+        Args:
+            client_id (str): The ID of the client sending the message.
+            message (str): The raw JSON message string.
+        """
         try:
             ws_message = WebSocketMessage.from_json(message)
             logger.debug(f"Received message from {client_id}: {ws_message.type}")
@@ -166,8 +178,15 @@ class WebSocketServer:
             if websocket:
                 await self.send_error(websocket, str(e))
     
-    async def handle_search(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle search request"""
+    async def handle_search(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle a search request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         query = message.data.get("query", "")
         n_results = message.data.get("n_results", 5)
         
@@ -199,8 +218,15 @@ class WebSocketServer:
             logger.error(f"Search error: {e}")
             await self.send_error(websocket, f"Search failed: {str(e)}")
     
-    async def handle_index(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle index request with progress updates"""
+    async def handle_index(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle an index request with progress updates.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         file_patterns = message.data.get("file_patterns", ["**/*.java", "**/*.py", "**/*.js", "**/*.ts"])
         
         # Start indexing in background thread
@@ -232,8 +258,15 @@ class WebSocketServer:
             logger.error(f"Indexing error: {e}")
             await self.send_error(websocket, f"Indexing failed: {str(e)}")
     
-    async def handle_subscribe(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle subscription request"""
+    async def handle_subscribe(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle a subscription request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         event_types = set(message.data.get("event_types", []))
         
         if not event_types:
@@ -258,8 +291,15 @@ class WebSocketServer:
         
         logger.info(f"Client {client_id} subscribed to: {event_types}")
     
-    async def handle_unsubscribe(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle unsubscribe request"""
+    async def handle_unsubscribe(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle an unsubscribe request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         if client_id in self.subscriptions:
             del self.subscriptions[client_id]
         
@@ -271,8 +311,15 @@ class WebSocketServer:
         
         logger.info(f"Client {client_id} unsubscribed")
     
-    async def handle_stats(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle stats request"""
+    async def handle_stats(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle a stats request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         try:
             stats = self.chroma_server.get_stats()
             
@@ -293,16 +340,30 @@ class WebSocketServer:
             logger.error(f"Stats error: {e}")
             await self.send_error(websocket, f"Failed to get stats: {str(e)}")
     
-    async def handle_ping(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle ping request"""
+    async def handle_ping(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle a ping request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         await self.send_message(websocket, WebSocketMessage(
             type=MessageType.PONG.value,
             id=message.id,
             data={"timestamp": time.time()}
         ))
     
-    async def handle_gpuinfo(self, client_id: str, websocket, message: WebSocketMessage):
-        """Handle GPU info request"""
+    async def handle_gpuinfo(self, client_id: str, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Handle a GPU info request.
+        
+        Args:
+            client_id (str): The client ID.
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The parsed message object.
+        """
         try:
             import torch
             
@@ -336,22 +397,40 @@ class WebSocketServer:
             logger.error(f"GPU info error: {e}")
             await self.send_error(websocket, f"Failed to get GPU info: {str(e)}")
     
-    async def send_message(self, websocket, message: WebSocketMessage):
-        """Send message to WebSocket client"""
+    async def send_message(self, websocket: Any, message: WebSocketMessage) -> None:
+        """
+        Send a message to a WebSocket client.
+        
+        Args:
+            websocket: The WebSocket connection.
+            message (WebSocketMessage): The message object to send.
+        """
         try:
             await websocket.send(message.to_json())
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
     
-    async def send_error(self, websocket, error_message: str):
-        """Send error message to client"""
+    async def send_error(self, websocket: Any, error_message: str) -> None:
+        """
+        Send an error message to a client.
+        
+        Args:
+            websocket: The WebSocket connection.
+            error_message (str): The error string to send.
+        """
         await self.send_message(websocket, WebSocketMessage(
             type=MessageType.ERROR.value,
             data={"message": error_message}
         ))
     
-    async def broadcast_event(self, event_type: str, data: Dict[str, Any]):
-        """Broadcast event to subscribed clients"""
+    async def broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        Broadcast an event to all subscribed clients.
+        
+        Args:
+            event_type (str): The type of event.
+            data (Dict[str, Any]): The event data.
+        """
         message = WebSocketMessage(
             type=event_type,
             data=data
@@ -366,8 +445,8 @@ class WebSocketServer:
                     except Exception as e:
                         logger.error(f"Failed to broadcast to {client_id}: {e}")
     
-    async def periodic_stats(self):
-        """Send periodic stats updates to subscribed clients"""
+    async def periodic_stats(self) -> None:
+        """Send periodic stats updates to subscribed clients."""
         while self.running:
             try:
                 await asyncio.sleep(self.stats_interval)
@@ -394,8 +473,8 @@ class WebSocketServer:
             events.update(subscription.event_types)
         return events
     
-    async def start(self):
-        """Start the WebSocket server"""
+    async def start(self) -> None:
+        """Start the WebSocket server."""
         try:
             import websockets
             
@@ -426,8 +505,8 @@ class WebSocketServer:
             if self.stats_task:
                 self.stats_task.cancel()
     
-    def start_in_thread(self):
-        """Start WebSocket server in a separate thread"""
+    def start_in_thread(self) -> None:
+        """Start the WebSocket server in a separate thread."""
         def run_server():
             self.event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.event_loop)
@@ -437,8 +516,8 @@ class WebSocketServer:
         self.server_thread.start()
         logger.info(f"WebSocket server thread started")
     
-    def stop(self):
-        """Stop the WebSocket server"""
+    def stop(self) -> None:
+        """Stop the WebSocket server."""
         self.running = False
         if self.event_loop and self.event_loop.is_running():
             self.event_loop.call_soon_threadsafe(self.event_loop.stop)

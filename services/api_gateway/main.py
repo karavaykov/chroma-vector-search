@@ -115,7 +115,7 @@ class APIGateway:
                 "error": str(e)
             }
     
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client"""
         await self.client.aclose()
 
@@ -142,16 +142,16 @@ app.add_middleware(
     allowed_hosts=["*"]  # In production, restrict to specific hosts
 )
 
-# Dependency for API Gateway
-async def get_gateway():
+async def get_gateway() -> Any:
+    """Dependency for API Gateway"""
     gateway = APIGateway()
     try:
         yield gateway
     finally:
         await gateway.close()
 
-# Dependency for rate limiting
-async def rate_limit(request: Request, gateway: APIGateway = Depends(get_gateway)):
+async def rate_limit(request: Request, gateway: APIGateway = Depends(get_gateway)) -> None:
+    """Dependency for rate limiting"""
     client_ip = request.client.host if request.client else "unknown"
     endpoint = request.url.path
     
@@ -162,7 +162,7 @@ async def rate_limit(request: Request, gateway: APIGateway = Depends(get_gateway
         )
 
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
+async def log_requests(request: Request, call_next: Any) -> Any:
     """Log all requests"""
     start_time = datetime.now()
     
@@ -182,7 +182,7 @@ async def search(
     request: SearchRequest,
     gateway: APIGateway = Depends(get_gateway),
     _: None = Depends(rate_limit)
-):
+) -> Dict[str, Any]:
     """Search endpoint"""
     return await gateway.forward_to_service(
         "search", "search", "POST", request.dict()
@@ -193,7 +193,7 @@ async def index(
     request: IndexRequest,
     gateway: APIGateway = Depends(get_gateway),
     _: None = Depends(rate_limit)
-):
+) -> Dict[str, Any]:
     """Index endpoint"""
     return await gateway.forward_to_service(
         "indexing", "index", "POST", request.dict()
@@ -203,7 +203,7 @@ async def index(
 async def get_index_status(
     job_id: str,
     gateway: APIGateway = Depends(get_gateway)
-):
+) -> Dict[str, Any]:
     """Get indexing job status"""
     return await gateway.forward_to_service(
         "indexing", f"index/status/{job_id}", "GET"
@@ -213,7 +213,7 @@ async def get_index_status(
 async def get_stats(
     collection_name: str = "codebase_vectors",
     gateway: APIGateway = Depends(get_gateway)
-):
+) -> Dict[str, Any]:
     """Get collection statistics"""
     return await gateway.forward_to_service(
         "metadata", f"metadata/stats?collection_name={collection_name}", "GET"
@@ -223,14 +223,14 @@ async def get_stats(
 async def list_files(
     collection_name: str = "codebase_vectors",
     gateway: APIGateway = Depends(get_gateway)
-):
+) -> Dict[str, Any]:
     """List indexed files"""
     return await gateway.forward_to_service(
         "metadata", f"metadata/files?collection_name={collection_name}", "GET"
     )
 
 @app.get("/api/v1/collections")
-async def list_collections(gateway: APIGateway = Depends(get_gateway)):
+async def list_collections(gateway: APIGateway = Depends(get_gateway)) -> Dict[str, Any]:
     """List available collections"""
     return await gateway.forward_to_service("search", "collections", "GET")
 
@@ -240,7 +240,7 @@ async def search_similar(
     n_results: int = 5,
     gateway: APIGateway = Depends(get_gateway),
     _: None = Depends(rate_limit)
-):
+) -> Dict[str, Any]:
     """Find similar chunks"""
     return await gateway.forward_to_service(
         "search", "search/similar", "POST", {"chunk_id": chunk_id, "n_results": n_results}
@@ -266,7 +266,7 @@ async def health_check(gateway: APIGateway = Depends(get_gateway)):
     )
 
 @app.get("/")
-async def root():
+async def root() -> Dict[str, Any]:
     """Root endpoint with API information"""
     return {
         "service": "Chroma Vector Search API Gateway",

@@ -170,6 +170,14 @@ def test_1c_file_processing():
     Копия.Дата = ТекущаяДата();
     Копия.Контрагент = Источник.Контрагент;
     
+    // Вызовы функций
+    ЗаполнитьРеквизиты(Копия);
+    УстановитьСтатус(Копия, "Новый");
+    
+    Если Не ПроверитьЗаполнение() Тогда
+        Сообщить("Ошибка");
+    КонецЕсли;
+    
 КонецПроцедуры
 
 Функция ПолучитьСтатус() Возврат Строка
@@ -204,11 +212,24 @@ def test_1c_file_processing():
             print(f"  Object name: {chunk.enterprise_metadata.object_name}")
             print(f"  Module type: {chunk.enterprise_metadata.module_type}")
             print(f"  Author: {chunk.enterprise_metadata.author}")
+            print(f"  Calls: {chunk.enterprise_metadata.calls}")
     
     assert len(chunks) >= 3  # Should find at least 3 procedures/functions
     assert chunks[0].enterprise_metadata.object_type == "Procedure"
     assert chunks[0].enterprise_metadata.object_name == "ПриСозданииНаОсновании"
     assert chunks[0].enterprise_metadata.module_type == "Document"
+    
+    # Check call graph extraction
+    calls_proc1 = chunks[0].enterprise_metadata.calls
+    assert "ЗаполнитьРеквизиты" in calls_proc1
+    assert "УстановитьСтатус" in calls_proc1
+    assert "ПроверитьЗаполнение" in calls_proc1
+    # 'Сообщить' and 'ТекущаяДата' are reserved and should not be in calls
+    assert "Сообщить" not in calls_proc1
+    assert "ТекущаяДата" not in calls_proc1
+    
+    calls_proc3 = chunks[2].enterprise_metadata.calls
+    assert "ПолучитьСледующийНомер" in calls_proc3
     
     print("✓ 1C file processing tests passed\n")
 

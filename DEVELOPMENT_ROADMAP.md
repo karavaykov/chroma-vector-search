@@ -82,9 +82,12 @@ gantt
 - [x] Специализированный BSL парсер - `_process_1c_bsl_file()` с семантическим разбиением
 - [x] Контекстуальные чанки для 1С - `_create_contextual_chunks()`
 - [x] Enterprise метаданные - класс `EnterpriseMetadata` с интеграцией в Chroma
+- [x] Улучшенный Regex State Machine парсер для 1С/BSL
+- [x] Извлечение графа вызовов (Call Graph) внутри методов
 - **KPI:** +40-50% точность поиска для 1С кода ✅
 - **Ответственный агент:** `bsl_specialist`
 - **Коммит:** `8d0bf70` - Phase 2: Enterprise metadata and 1C/BSL support
+- **Примечание:** Требуется запуск и верификация тестов в настроенном Python-окружении (см. `test_1c_parser.py`).
 
 ### Milestone 3: Микросервисная архитектура ✅ ВЫПОЛНЕНО (20 апреля 2026)
 - [x] Indexing Service (индексация) - `services/indexing_service/`

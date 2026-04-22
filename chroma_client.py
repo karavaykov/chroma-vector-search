@@ -8,9 +8,19 @@ import socket
 import json
 import sys
 import argparse
+from typing import Dict, Any, Optional, List
 
-def send_command(port: int = 8765, command: str = "PING") -> dict:
-    """Send a command to Chroma server"""
+def send_command(port: int = 8765, command: str = "PING") -> Dict[str, Any]:
+    """
+    Send a command to the Chroma server via TCP.
+    
+    Args:
+        port (int): The port number of the server. Defaults to 8765.
+        command (str): The command string to send. Defaults to "PING".
+        
+    Returns:
+        Dict[str, Any]: The JSON response from the server parsed into a dictionary.
+    """
     try:
         # Connect to server
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -35,8 +45,19 @@ def send_command(port: int = 8765, command: str = "PING") -> dict:
         return {"type": "error", "message": str(e)}
 
 def search(port: int, query: str, n_results: int = 5, search_type: str = "semantic",
-            semantic_weight: float = 0.7, keyword_weight: float = 0.3, fusion_method: str = "weighted"):
-    """Perform search (semantic, keyword, or hybrid)"""
+           semantic_weight: float = 0.7, keyword_weight: float = 0.3, fusion_method: str = "weighted") -> None:
+    """
+    Perform a search (semantic, keyword, or hybrid) against the Chroma server.
+    
+    Args:
+        port (int): The port number of the server.
+        query (str): The search query.
+        n_results (int): The number of top results to return.
+        search_type (str): The type of search ("semantic", "keyword", or "hybrid").
+        semantic_weight (float): Weight for semantic search in hybrid mode.
+        keyword_weight (float): Weight for keyword search in hybrid mode.
+        fusion_method (str): Method to fuse results ("weighted", "rrf", etc.).
+    """
     if search_type == "semantic":
         command = f"SEARCH|{query}|{n_results}"
     elif search_type == "keyword":
@@ -65,8 +86,14 @@ def search(port: int, query: str, n_results: int = 5, search_type: str = "semant
     else:
         print(f"Error: {result.get('message', 'Unknown error')}")
 
-def index_codebase(port: int, file_patterns: str = None):
-    """Index the codebase"""
+def index_codebase(port: int, file_patterns: Optional[str] = None) -> None:
+    """
+    Trigger indexing of the codebase on the server.
+    
+    Args:
+        port (int): The port number of the server.
+        file_patterns (Optional[str]): Comma-separated file patterns to index (e.g., "**/*.py").
+    """
     if file_patterns:
         command = f"INDEX|{file_patterns}"
     else:
@@ -80,8 +107,13 @@ def index_codebase(port: int, file_patterns: str = None):
     else:
         print(f"Error: {result.get('message', 'Unknown error')}")
 
-def get_stats(port: int):
-    """Get server statistics"""
+def get_stats(port: int) -> None:
+    """
+    Get and print server statistics.
+    
+    Args:
+        port (int): The server port number.
+    """
     result = send_command(port, "STATS")
     
     if result.get("type") == "stats":
@@ -93,8 +125,13 @@ def get_stats(port: int):
     else:
         print(f"Error: {result.get('message', 'Unknown error')}")
 
-def ping(port: int):
-    """Check if server is alive"""
+def ping(port: int) -> None:
+    """
+    Check if the server is alive by sending a PING command.
+    
+    Args:
+        port (int): The server port number.
+    """
     result = send_command(port, "PING")
     
     if result.get("type") == "pong":
